@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { get, list, put } from "@vercel/blob";
 import type { GeneratedBrief } from "./brief";
+import type { Board } from "./data";
 
 export const EVENTS = ["visit", "brief_created", "prebuilt_opened", "share_copied", "link_added", "network_click"] as const;
 export type EventName = (typeof EVENTS)[number];
@@ -17,6 +18,19 @@ export async function saveBrief(brief: GeneratedBrief) {
 export async function loadBrief(id: string): Promise<GeneratedBrief | null> {
   if (!/^[\w-]{12}$/.test(id)) return null;
   const blob = await get(`briefs/${id}.json`, { access: "private" }).catch(() => null);
+  if (!blob || blob.statusCode !== 200) return null;
+  return new Response(blob.stream).json();
+}
+
+const BOARD = "board/latest.json";
+
+export async function saveBoard(board: Board) {
+  await put(BOARD, JSON.stringify(board), { ...write, contentType: "application/json", allowOverwrite: true, cacheControlMaxAge: 60 });
+}
+
+export async function loadBoard(): Promise<Board | null> {
+  // Skip the CDN copy so pages rebuilt right after a refresh see it.
+  const blob = await get(BOARD, { access: "private", useCache: false }).catch(() => null);
   if (!blob || blob.statusCode !== 200) return null;
   return new Response(blob.stream).json();
 }

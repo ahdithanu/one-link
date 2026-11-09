@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { roles } from "@/lib/data";
+import { getBoard, getOpenRoles } from "@/lib/data";
 import { countEvents, EventName } from "@/lib/store";
 import { story } from "@/lib/story";
 
@@ -16,6 +16,8 @@ const STEPS: { name: EventName; label: string }[] = [
 ];
 
 export default async function Why() {
+  const [board, roles] = await Promise.all([getBoard(), getOpenRoles()]);
+  const asOf = new Date(`${board.asOf}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const noPay = roles.filter((r) => r.pay.kind !== "posted").length;
   const stale = roles.filter((r) => r.ageDays > 90).length;
   const companies = new Set(roles.map((r) => r.company)).size;
@@ -44,7 +46,7 @@ export default async function Why() {
           <div><strong>{pct(stale)}</strong><span>are over 90 days old</span></div>
           <div><strong>{roles.length}</strong><span>roles at {companies} companies</span></div>
         </div>
-        <p className="note">From the public speedrun talent network API, as of October 31, 2026.</p>
+        <p className="note">From the public speedrun talent network API, as of {asOf}.</p>
         <p>A candidate shouldn&apos;t find out a role has gone quiet after spending a weekend on it. So each brief shows the role&apos;s age and pay first, and only that candidate&apos;s page carries the warning. The network also says a person reads every signup, which can take months. A finished project gives that person something better to read.</p>
       </section>
 

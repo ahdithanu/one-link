@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="foot">
           <p>
             An independent concept by Ahdithan Uthayakumar. Not affiliated with or endorsed by a16z or speedrun.
-            Role data comes from the public speedrun talent network API, as of October 31, 2026.
+            Role data comes from the public speedrun talent network API and refreshes daily.
           </p>
         </footer>
       </body>

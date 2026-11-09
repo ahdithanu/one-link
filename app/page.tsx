@@ -1,6 +1,8 @@
 import { Home } from "@/components/Home";
-import { listings } from "@/lib/data";
+import { getListings } from "@/lib/data";
 
-export default function Page() {
-  return <Home roles={listings} />;
+export const revalidate = 3600;
+
+export default async function Page() {
+  return <Home roles={await getListings()} />;
 }

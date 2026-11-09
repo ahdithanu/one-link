@@ -31,7 +31,8 @@ function RoleCard({ role }: { role: Role }) {
         <dt>Where</dt>
         <dd>{[role.location, role.workplace].filter(Boolean).join(" · ") || "Not stated"}</dd>
       </dl>
-      {role.ageDays > 90 && <p className="flag">This listing is over 90 days old. Check it&apos;s still open first.</p>}
+      {role.open === false && <p className="flag">This role is no longer listed on the talent network.</p>}
+      {role.open !== false && role.ageDays > 90 && <p className="flag">This listing is over 90 days old. Check it&apos;s still open first.</p>}
       {role.conflict && <p className="flag">{role.conflict}</p>}
     </div>
   );

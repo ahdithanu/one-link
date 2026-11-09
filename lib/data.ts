@@ -1,5 +1,7 @@
+import { cache } from "react";
 import rolesFile from "@/data/roles.json";
 import briefsFile from "@/data/briefs.json";
+import { loadBoard } from "./store";
 
 export type Pay =
   | { kind: "posted"; min: number; max: number }
@@ -18,6 +20,7 @@ export type Role = {
   ageDays: number;
   pay: Pay;
   conflict: string | null;
+  open?: boolean;
 };
 
 export type Brief = {
@@ -30,16 +33,42 @@ export type Brief = {
   opener: string;
 };
 
+export type Board = { asOf: string; roles: Role[]; briefs: Record<string, Brief>; skipped: string[] };
+
 export type RoleListing = Role & { buildTitle: string };
 
-const briefs = briefsFile as Record<string, Brief>;
-const allRoles = rolesFile.roles as unknown as Role[];
+// Built into the deploy. The daily refresh replaces it once it has run.
+export const bundled: Board = {
+  asOf: rolesFile.asOf,
+  roles: rolesFile.roles as unknown as Role[],
+  briefs: briefsFile as Record<string, Brief>,
+  skipped: [],
+};
 
-export const roles = allRoles.filter((r) => briefs[r.id]);
+const DAY = 24 * 60 * 60 * 1000;
 
-export const listings: RoleListing[] = roles.map((r) => ({ ...r, buildTitle: briefs[r.id].build.title }));
+export const getBoard = cache(async (): Promise<Board> => {
+  const board = (await loadBoard().catch(() => null)) ?? bundled;
+  const now = Date.now();
+  return {
+    ...board,
+    roles: board.roles.map((r) => ({ ...r, ageDays: r.posted ? Math.floor((now - Date.parse(r.posted)) / DAY) : r.ageDays })),
+  };
+});
 
-export function findRole(short: string) {
-  const role = roles.find((r) => r.short === short);
-  return role ? { role, brief: briefs[role.id] } : null;
+export async function getOpenRoles() {
+  const board = await getBoard();
+  return board.roles.filter((r) => r.open !== false && board.briefs[r.id]);
+}
+
+export async function getListings(): Promise<RoleListing[]> {
+  const board = await getBoard();
+  return (await getOpenRoles()).map((r) => ({ ...r, buildTitle: board.briefs[r.id].build.title }));
+}
+
+export async function findRole(short: string) {
+  if (!/^[0-9a-f]{8}$/.test(short)) return null;
+  const board = await getBoard();
+  const role = board.roles.find((r) => r.short === short);
+  return role && board.briefs[role.id] ? { role, brief: board.briefs[role.id] } : null;
 }
