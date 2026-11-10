@@ -140,3 +140,6 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 24px 72px; }
 .funnel .bar { grid-row: 2; grid-column: 1 / -1; display: block; height: 8px; min-width: 2px; background: var(--signal); }
 .funnel b { font-family: var(--mono); font-weight: 500; }
 @media (max-width: 600px) { .stats { grid-template-columns: 1fr; } .top nav { gap: 12px; font-size: 14px; } .wordmark { font-size: 17px; } }
+.cmd { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; white-space: pre; }
+.why .section .cmd + p, .why .section p + .cmd { margin-top: 12px; }
+.why code { font-family: var(--mono); font-size: 0.88em; }

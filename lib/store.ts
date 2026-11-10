@@ -3,7 +3,7 @@ import { get, list, put } from "@vercel/blob";
 import type { GeneratedBrief } from "./brief";
 import type { Board } from "./data";
 
-export const EVENTS = ["visit", "brief_created", "prebuilt_opened", "share_copied", "link_added", "network_click"] as const;
+export const EVENTS = ["visit", "brief_created", "prebuilt_opened", "share_copied", "link_added", "network_click", "agent_brief"] as const;
 export type EventName = (typeof EVENTS)[number];
 
 const write = { access: "private", addRandomSuffix: false } as const;

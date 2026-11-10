@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getBoard, getOpenRoles } from "@/lib/data";
+import Link from "next/link";
+import { findRole, getBoard, getOpenRoles } from "@/lib/data";
 import { countEvents, EventName } from "@/lib/store";
 import { story } from "@/lib/story";
 
@@ -13,10 +14,15 @@ const STEPS: { name: EventName; label: string }[] = [
   { name: "share_copied", label: "Brief links copied" },
   { name: "link_added", label: "Finished work added" },
   { name: "network_click", label: "Clicks to the talent network" },
+  { name: "agent_brief", label: "Briefs fetched by AI agents" },
 ];
 
+// The speedrun talent team's Product Engineer role.
+const OWN_ROLE = "5c268fc2";
+const MCP_ADD = "claude mcp add --transport http one-link https://one-link-eta.vercel.app/mcp";
+
 export default async function Why() {
-  const [board, roles] = await Promise.all([getBoard(), getOpenRoles()]);
+  const [board, roles, own] = await Promise.all([getBoard(), getOpenRoles(), findRole(OWN_ROLE)]);
   const asOf = new Date(`${board.asOf}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const noPay = roles.filter((r) => r.pay.kind !== "posted").length;
   const stale = roles.filter((r) => r.ageDays > 90).length;
@@ -38,6 +44,36 @@ export default async function Why() {
           {story.map((p) => <p key={p}>{p}</p>)}
         </section>
       )}
+
+      {own && (
+        <section className="section">
+          <h2>Its own brief</h2>
+          <p>
+            I ran One Link on the {own.role.title} role on the {own.role.company} talent team. It said to build this:{" "}
+            <Link href={`/r/${own.role.short}`}>{own.brief.build.title}</Link>. {own.brief.build.pitch}
+          </p>
+          <p>One Link is my answer to that brief.</p>
+          <ul className="good">
+            <li>A stranger can use it in under a minute. There&apos;s no signup: paste a job and read the brief.</li>
+            <li>It fits what the talent team already runs. It reads the same public jobs API, and it now plugs into their MCP server.</li>
+            <li>It&apos;s live, deployed, and refreshes itself every day.</li>
+          </ul>
+        </section>
+      )}
+
+      <section className="section">
+        <h2>For AI agents</h2>
+        <p>
+          One Link is also an MCP server. Add it next to the speedrun talent network&apos;s server, and an agent can find a role with{" "}
+          <code>search_jobs</code> and then get its brief with <code>get_build_brief</code>. Both servers use the same job ids, so
+          no glue code is needed.
+        </p>
+        <div className="cmd">{MCP_ADD}</div>
+        <p>
+          For any job at any company, <code>brief_from_job_post</code> writes a new brief from the description. All three tools
+          are public, need no key, and store nothing about the caller.
+        </p>
+      </section>
 
       <section className="section">
         <h2>What the board showed</h2>

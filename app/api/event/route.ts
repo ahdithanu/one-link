@@ -17,7 +17,8 @@ function limited(ip: string) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  if (!EVENTS.includes(body?.name)) return new NextResponse(null, { status: 400 });
+  // agent_brief is recorded by the MCP server only.
+  if (!EVENTS.includes(body?.name) || body.name === "agent_brief") return new NextResponse(null, { status: 400 });
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   if (!limited(ip)) await recordEvent(body.name as EventName).catch(() => {});
   return new NextResponse(null, { status: 204 });
