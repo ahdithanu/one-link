@@ -11,7 +11,7 @@ One Link turns a job post into a weekend proof-of-work brief:
 
 Each brief puts the role's age and pay first, so nobody spends a weekend on a listing that has gone quiet.
 
-**Live:** https://one-link-eta.vercel.app · **Why it exists:** https://one-link-eta.vercel.app/why
+**Live:** https://one-link-eta.vercel.app · **Why it exists:** https://one-link-eta.vercel.app/why · **Code:** https://github.com/ahdithanu/one-link
 
 > An independent concept. Not affiliated with or endorsed by a16z or speedrun.
 
