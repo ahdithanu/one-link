@@ -1,0 +1,116 @@
+{
+  "ran_at": "2026-11-19T17:31:24.081Z",
+  "board_as_of": "2026-10-31",
+  "open_roles": 195,
+  "total_checks": 2426,
+  "passed": 2426,
+  "failed": 0,
+  "pass_rate": 1,
+  "by_check": {
+    "get_build_brief.resolves_uuid": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.resolves_short": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.resolves_url": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.output_schema": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.source_consistency": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.plan_days": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.build_title_max_8_words": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.evidence_max_15_words": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.opener_has_link_slot": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.opener_max_34_words": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.no_em_dash": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.age_and_pay_shown": {
+      "pass": 195,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.missing_record_is_tool_error": {
+      "pass": 3,
+      "fail": 0,
+      "failures": []
+    },
+    "get_build_brief.invalid_id_is_tool_error": {
+      "pass": 5,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.total_matches_board": {
+      "pass": 1,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.row_resolves_to_same_build": {
+      "pass": 50,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.function_filter_exact": {
+      "pass": 8,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.text_filter_exact": {
+      "pass": 10,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.empty_result_not_error": {
+      "pass": 1,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.limit_respected": {
+      "pass": 3,
+      "fail": 0,
+      "failures": []
+    },
+    "list_briefs.invalid_params_are_tool_errors": {
+      "pass": 5,
+      "fail": 0,
+      "failures": []
+    }
+  }
+}

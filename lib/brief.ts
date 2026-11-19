@@ -1,6 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import type { Usage } from "./log";
+
+export const MODEL = "claude-opus-5-5";
 
 export const BriefSchema = z.object({
   company: z.string(),
@@ -36,15 +39,19 @@ Fields:
 - avoid: the most likely way this falls flat.
 - opener: the first line of a note, at most 30 words, naming what was built and ending with [your link].`;
 
-export async function generateBrief(jobPost: string): Promise<GeneratedBrief | null> {
-  const client = new Anthropic();
-  const response = await client.messages.parse({
-    model: "claude-opus-5-5",
+// Route handlers run for at most 60 seconds, so give up on the model before the platform does.
+let client: Anthropic | null = null;
+const getClient = () => (client ??= new Anthropic({ timeout: 45_000, maxRetries: 1 }));
+
+export async function generateBrief(jobPost: string, onUsage?: (usage: Usage) => void): Promise<GeneratedBrief | null> {
+  const response = await getClient().messages.parse({
+    model: MODEL,
     max_tokens: 4000,
     system: SYSTEM,
     output_config: { effort: "low", format: zodOutputFormat(BriefSchema) },
     messages: [{ role: "user", content: `<job_post>\n${jobPost}\n</job_post>` }],
   });
+  onUsage?.({ model: MODEL, input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens });
   if (response.stop_reason !== "end_turn") return null;
   const brief = response.parsed_output;
   if (!brief || !brief.build.title) return null;

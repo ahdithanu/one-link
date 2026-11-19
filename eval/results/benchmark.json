@@ -1,0 +1,81 @@
+{
+  "local": {
+    "label": "local",
+    "url": "http://localhost:3210/mcp",
+    "n": 100,
+    "at": "2026-11-19T17:24:34.390Z",
+    "results": {
+      "initialize": {
+        "n": 100,
+        "median": 2,
+        "p95": 2.5,
+        "max": 4.5,
+        "errors": 0
+      },
+      "tools/list": {
+        "n": 100,
+        "median": 2,
+        "p95": 2.4,
+        "max": 8.2,
+        "errors": 0
+      },
+      "list_briefs (limit 20)": {
+        "n": 100,
+        "median": 2.1,
+        "p95": 3,
+        "max": 6.9,
+        "errors": 0
+      },
+      "list_briefs (q filter)": {
+        "n": 100,
+        "median": 2.1,
+        "p95": 2.5,
+        "max": 3,
+        "errors": 0
+      },
+      "get_build_brief": {
+        "n": 100,
+        "median": 1.9,
+        "p95": 2.2,
+        "max": 3.5,
+        "errors": 0
+      }
+    }
+  },
+  "production": {
+    "label": "production",
+    "url": "https://one-link-eta.vercel.app/mcp",
+    "n": 50,
+    "at": "2026-11-19T17:25:24.789Z",
+    "results": {
+      "initialize": {
+        "n": 50,
+        "median": 128.5,
+        "p95": 167,
+        "max": 216.8,
+        "errors": 0
+      },
+      "tools/list": {
+        "n": 50,
+        "median": 141.8,
+        "p95": 287.4,
+        "max": 527.7,
+        "errors": 0
+      },
+      "list_briefs (limit 20)": {
+        "n": 50,
+        "median": 282.2,
+        "p95": 418.7,
+        "max": 569.4,
+        "errors": 0
+      },
+      "list_briefs (q filter)": {
+        "n": 50,
+        "median": 287.5,
+        "p95": 672,
+        "max": 880.2,
+        "errors": 0
+      }
+    }
+  }
+}

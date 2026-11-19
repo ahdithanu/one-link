@@ -1,9 +1,11 @@
+import { z } from "zod";
 import type { GeneratedBrief } from "./brief";
-import { findRole, getListings, type Brief, type Role } from "./data";
-import { makeBrief } from "./make-brief";
+import { findRole, getBoardCached, getListings, type Brief, type Role } from "./data";
+import type { ErrorCategory, Usage } from "./log";
+import { makeBrief, MAX_POST } from "./make-brief";
 import { recordEvent } from "./store";
 
-export const SERVER = { name: "one-link", title: "One Link", version: "0.2.0" };
+export const SERVER = { name: "one-link", title: "One Link", version: "0.3.0" };
 
 export const INSTRUCTIONS = `One Link turns a job into a weekend proof-of-work brief: the one thing to build that makes the hiring manager reply, a three-step plan, and the first line of the note to send with it.
 
@@ -101,30 +103,60 @@ type Content = { content: { type: "text"; text: string }[]; structuredContent?: 
 
 const text = (t: string, isError = false): Content => ({ content: [{ type: "text", text: t }], ...(isError && { isError }) });
 
-export async function callTool(name: string, args: Record<string, unknown>, ctx: { origin: string; limited: () => boolean }): Promise<Content | null> {
+// Argument checks mirror each tool's inputSchema. Failures go back to the model as tool errors
+// (isError) so it can fix the call, as the MCP spec recommends for input validation.
+const FUNCTIONS = TOOLS[1].inputSchema.properties.function.enum;
+export const ARGS = {
+  get_build_brief: z.object({ job: z.string().min(8).max(300) }),
+  list_briefs: z.object({
+    q: z.string().max(120).optional(),
+    function: z.enum(FUNCTIONS).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  }),
+  brief_from_job_post: z.object({ job_post: z.string().min(12).max(MAX_POST) }),
+};
+
+function argError(err: z.ZodError) {
+  const issues = err.issues.map((i) => `${i.path.join(".") || "arguments"}: ${i.message}`).join("; ");
+  return text(`Invalid arguments. ${issues}`, true);
+}
+
+export type ToolContext = { origin: string; limited: () => boolean; eventLimited: () => boolean };
+export type ToolOutcome = { result: Content; category?: ErrorCategory; usage?: Usage };
+
+const done = (result: Content, category?: ErrorCategory, usage?: Usage): ToolOutcome => ({ result, ...(category && { category }), ...(usage && { usage }) });
+
+export async function callTool(name: string, rawArgs: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutcome | null> {
   if (name === "get_build_brief") {
-    const short = typeof args.job === "string" ? parseJobRef(args.job) : null;
-    if (!short) return text("Pass a job UUID, its first 8 hex characters, or a speedrun-talent-network.com job url.", true);
-    const found = await findRole(short);
+    const parsed = ARGS.get_build_brief.safeParse(rawArgs);
+    if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
+    const short = parseJobRef(parsed.data.job);
+    if (!short) return done(text("Pass a job UUID, its first 8 hex characters, or a speedrun-talent-network.com job url.", true), "invalid_arguments");
+    const found = await findRole(short, () => getBoardCached());
     if (!found)
-      return text(
-        "No ready brief for that job. Only open a16z speedrun portfolio roles have one, and new roles get theirs within a day. For any other job, call brief_from_job_post with its description.",
-        true,
+      return done(
+        text(
+          "No ready brief for that job. Only open a16z speedrun portfolio roles have one, and new roles get theirs within a day. For any other job, call brief_from_job_post with its description.",
+          true,
+        ),
+        "not_found",
       );
     const { role, brief } = found;
     const url = `${ctx.origin}/r/${role.short}`;
-    await recordEvent("agent_brief").catch(() => {});
-    return {
+    if (!ctx.eventLimited()) await recordEvent("agent_brief").catch(() => {});
+    return done({
       ...text(briefText(brief, `${role.title} at ${role.company}`, url, role)),
       structuredContent: { role: { ...role, warnings: warnings(role) }, brief, url },
-    };
+    });
   }
 
   if (name === "list_briefs") {
-    const q = typeof args.q === "string" ? args.q.trim().toLowerCase() : "";
-    const fn = typeof args.function === "string" ? args.function : "";
-    const limit = Math.min(50, Math.max(1, Number.isInteger(args.limit) ? (args.limit as number) : 20));
-    const all = (await getListings()).filter(
+    const parsed = ARGS.list_briefs.safeParse(rawArgs);
+    if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
+    const q = (parsed.data.q ?? "").trim().toLowerCase();
+    const fn = parsed.data.function ?? "";
+    const limit = parsed.data.limit ?? 20;
+    const all = (await getListings(() => getBoardCached())).filter(
       (r) => (!fn || r.function === fn) && (!q || `${r.title} ${r.company} ${r.buildTitle}`.toLowerCase().includes(q)),
     );
     const rows = all.slice(0, limit).map((r) => ({
@@ -140,17 +172,20 @@ export async function callTool(name: string, args: Record<string, unknown>, ctx:
     const body = rows.length
       ? rows.map((r) => `- ${r.title} at ${r.company} (${r.posted_days_ago}d old) -> build: ${r.build} [job_id ${r.job_id}]`).join("\n")
       : "No matching roles.";
-    return { ...text(`${all.length} matching roles, showing ${rows.length}.\n${body}`), structuredContent: { total: all.length, roles: rows } };
+    return done({ ...text(`${all.length} matching roles, showing ${rows.length}.\n${body}`), structuredContent: { total: all.length, roles: rows } });
   }
 
   if (name === "brief_from_job_post") {
-    if (ctx.limited()) return text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true);
-    const result = await makeBrief(args.job_post);
-    if ("error" in result) return text(result.error, true);
+    // Validate first so a malformed call doesn't use up the caller's hourly allowance.
+    const parsed = ARGS.brief_from_job_post.safeParse(rawArgs);
+    if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
+    if (ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
+    const result = await makeBrief(parsed.data.job_post);
+    if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = result.id ? `${ctx.origin}/b/${result.id}` : null;
-    await recordEvent("agent_brief").catch(() => {});
+    if (!ctx.eventLimited()) await recordEvent("agent_brief").catch(() => {});
     const { brief } = result;
-    return { ...text(briefText(brief, `${brief.title} at ${brief.company}`, url)), structuredContent: { brief, url } };
+    return done({ ...text(briefText(brief, `${brief.title} at ${brief.company}`, url)), structuredContent: { brief, url } }, undefined, result.usage);
   }
 
   return null;
