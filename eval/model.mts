@@ -13,8 +13,9 @@ import { z } from "zod";
 import { generateBrief, MODEL, type GeneratedBrief } from "../lib/brief";
 import type { Usage } from "../lib/log";
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("Set ANTHROPIC_API_KEY to run the model eval.");
+const key = process.env.ANTHROPIC_API_KEY;
+if (!key || key.includes("...")) {
+  console.error(key ? "ANTHROPIC_API_KEY is still the placeholder. Paste a real key from console.anthropic.com." : "Set ANTHROPIC_API_KEY to run the model eval.");
   process.exit(2);
 }
 const runsArg = process.argv.indexOf("--runs");
@@ -112,6 +113,13 @@ for (let run = 1; run <= RUNS; run++) {
     try {
       brief = await generateBrief(c.post, (u) => (usage = u));
     } catch (err) {
+      // A bad key is a setup problem, not a model result: stop before writing a results file.
+      // Checked by status, not instanceof: this .mts file and lib/brief.ts load different builds of the SDK.
+      const status = (err as { status?: unknown }).status;
+      if (status === 401 || status === 403) {
+        console.error(`Stopped: the API rejected the key (${status}). No results were written.`);
+        process.exit(2);
+      }
       error = err instanceof Error ? `${err.constructor.name}: ${err.message.slice(0, 200)}` : String(err);
     }
     const latency_ms = Math.round(performance.now() - t0);
