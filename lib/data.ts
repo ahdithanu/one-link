@@ -47,28 +47,46 @@ export const bundled: Board = {
 
 const DAY = 24 * 60 * 60 * 1000;
 
-export const getBoard = cache(async (): Promise<Board> => {
+async function readBoard(): Promise<Board> {
   const board = (await loadBoard().catch(() => null)) ?? bundled;
   const now = Date.now();
   return {
     ...board,
     roles: board.roles.map((r) => ({ ...r, ageDays: r.posted ? Math.floor((now - Date.parse(r.posted)) / DAY) : r.ageDays })),
   };
-});
+}
 
-export async function getOpenRoles() {
-  const board = await getBoard();
+// Pages read the board fresh (once per render), so a page rebuilt right after the daily refresh sees it.
+export const getBoard = cache(readBoard);
+
+// The MCP server reads it at most once a minute per instance. The board changes once a day, and a
+// Blob read on every tool call was most of the tool latency in production.
+const BOARD_TTL_MS = 60_000;
+let memo: { at: number; board: Promise<Board> } | null = null;
+export function getBoardCached(now = Date.now()): Promise<Board> {
+  if (!memo || now - memo.at > BOARD_TTL_MS || now < memo.at) {
+    const board = readBoard();
+    memo = { at: now, board };
+    board.catch(() => (memo = null));
+  }
+  return memo.board;
+}
+
+type Loader = () => Promise<Board>;
+
+export async function getOpenRoles(load: Loader = getBoard) {
+  const board = await load();
   return board.roles.filter((r) => r.open !== false && board.briefs[r.id]);
 }
 
-export async function getListings(): Promise<RoleListing[]> {
-  const board = await getBoard();
-  return (await getOpenRoles()).map((r) => ({ ...r, buildTitle: board.briefs[r.id].build.title }));
+export async function getListings(load: Loader = getBoard): Promise<RoleListing[]> {
+  const board = await load();
+  return (await getOpenRoles(() => Promise.resolve(board))).map((r) => ({ ...r, buildTitle: board.briefs[r.id].build.title }));
 }
 
-export async function findRole(short: string) {
+export async function findRole(short: string, load: Loader = getBoard) {
   if (!/^[0-9a-f]{8}$/.test(short)) return null;
-  const board = await getBoard();
+  const board = await load();
   const role = board.roles.find((r) => r.short === short);
   return role && board.briefs[role.id] ? { role, brief: board.briefs[role.id] } : null;
 }

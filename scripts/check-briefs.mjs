@@ -38,7 +38,7 @@ for (const r of roles) {
 for (const [id, m] of problems) console.log(id.slice(0, 8), m);
 console.log(`${Object.keys(briefs).length} briefs, ${roles.length} roles, ${problems.length} problems`);
 const clean = Object.fromEntries(roles.filter((r) => briefs[r.id]).map((r) => {
-  const { id, ...rest } = briefs[r.id];
+  const { id: _id, ...rest } = briefs[r.id];
   return [r.id, rest];
 }));
 writeFileSync("data/briefs.json", JSON.stringify(clean));
