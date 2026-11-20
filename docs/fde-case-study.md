@@ -70,17 +70,17 @@ The full list, with severities, is in [docs/audit.md](audit.md). The ones that m
 
 From `npm run bench`, sequential requests, 3 warm-up requests discarded:
 
-| Operation | Local median / p95 | Production median / p95 |
-| --- | --- | --- |
-| initialize | 2.0 / 2.5 ms | 128.5 / 167.0 ms |
-| tools/list | 2.0 / 2.4 ms | 141.8 / 287.4 ms |
-| list_briefs | 2.1 / 3.0 ms | 282.2 / 418.7 ms |
+| Operation | Local median / p95 | Production before | Production after |
+| --- | --- | --- | --- |
+| initialize | 2.0 / 2.5 ms | 128.5 / 167.0 ms | 97.0 / 143.3 ms |
+| tools/list | 2.0 / 2.4 ms | 141.8 / 287.4 ms | 96.0 / 106.8 ms |
+| list_briefs | 2.1 / 3.0 ms | 282.2 / 418.7 ms | 95.1 / 111.7 ms |
 
-Local means a laptop over loopback with the bundled board, which shows handler cost only. Production means the same laptop calling the deployed pre-change build on 2026-11-19, including the network. Those are different conditions, so the two columns aren't directly comparable. The board cache should bring production `list_briefs` close to `initialize`. That's a hypothesis until it's re-measured after deploy.
+Local means a laptop over loopback with the bundled board, which shows handler cost only. Production means the same laptop calling the deployed build, including the network: "before" is the pre-change build on 2026-11-19, and "after" is this branch on 2026-11-20. Local and production are different conditions, so those columns aren't directly comparable. The useful comparison is within each production column. Before, `list_briefs` cost about 150 ms more than `initialize`. After, the two are equal, which confirms the board cache removed the per-call Blob read.
 
 ## Production considerations
 
-- **Deploy:** manual `vercel deploy --prod` after CI passes on the branch. Nothing here has been deployed yet.
+- **Deploy:** manual `vercel deploy --prod` after CI passes on the branch. Deployed to production on 2026-11-20 at `f2dd299`, after CI passed on the PR. The post-deploy smoke test passed 13/13.
 - **Watch:** filter Vercel logs on `"event":"mcp_request"`.
   - Error rate by `error_category`.
   - p95 `duration_ms` per tool.
@@ -91,7 +91,7 @@ Local means a laptop over loopback with the bundled board, which shows handler c
 ## What should improve next
 
 1. **Global rate limits** in a shared store, so limits hold across instances.
-2. **Re-run the benchmark after deploy** to confirm the board cache, and add a scheduled synthetic check (`npm run smoke` against production) so regressions page someone.
+2. **A scheduled synthetic check** (`npm run smoke` against production) so regressions page someone.
 3. **Run the model eval** with 3 runs per case, so variance is visible. Add a small human-labeled set to calibrate the judge.
 4. **`outputSchema` on the tools**, so clients can validate `structuredContent`.
 5. **Measure the outcome that matters:** how many briefs turn into a shipped link, not how many briefs are generated.

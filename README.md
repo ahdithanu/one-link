@@ -142,15 +142,15 @@ There are three layers, kept apart because they answer different questions.
 
 Latency, from `npm run bench`: sequential requests, the first 3 discarded as warm-up.
 
-| Operation | Local median / p95 (n=100) | Production median / p95 (n=50) |
-| --- | --- | --- |
-| initialize | 2.0 / 2.5 ms | 128.5 / 167.0 ms |
-| tools/list | 2.0 / 2.4 ms | 141.8 / 287.4 ms |
-| list_briefs (default) | 2.1 / 3.0 ms | 282.2 / 418.7 ms |
-| list_briefs (q filter) | 2.1 / 2.5 ms | 287.5 / 672.0 ms |
-| get_build_brief | 1.9 / 2.2 ms | not measured (it writes a usage event) |
+| Operation | Local median / p95 (n=100) | Production before, `89e893a` (n=50) | Production after, `f2dd299` (n=50) |
+| --- | --- | --- | --- |
+| initialize | 2.0 / 2.5 ms | 128.5 / 167.0 ms | 97.0 / 143.3 ms |
+| tools/list | 2.0 / 2.4 ms | 141.8 / 287.4 ms | 96.0 / 106.8 ms |
+| list_briefs (default) | 2.1 / 3.0 ms | 282.2 / 418.7 ms | 95.1 / 111.7 ms |
+| list_briefs (q filter) | 2.1 / 2.5 ms | 287.5 / 672.0 ms | 99.9 / 128.1 ms |
+| get_build_brief | 1.9 / 2.2 ms | not measured (it writes a usage event) | not measured |
 
-Local numbers are from a laptop calling `next start` over loopback with the bundled board and no Blob access, so they show handler cost only. Production numbers are from the same laptop to `one-link-eta.vercel.app` on 2026-11-19, against the **pre-change** deployment (commit `89e893a`), so they include network round trips and an uncached Blob read on every tool call. Finding 18 in the audit (the board cache) targets that gap, and it hasn't been re-measured since. `brief_from_job_post` is dominated by the model call and isn't benchmarked here.
+Local numbers are from a laptop calling `next start` over loopback with the bundled board and no Blob access, so they show handler cost only. Production numbers are from the same laptop to `one-link-eta.vercel.app`, so they include network round trips. "Before" is the pre-change deployment on 2026-11-19, which did an uncached Blob read on every tool call. "After" is this branch, deployed and measured on 2026-11-20. With the board cache (audit finding 18), `list_briefs` now costs the same as `initialize`, which reads no data. That puts the old gap at about 150 ms per call. `initialize` itself also dropped, which is most likely network variance between the two runs, so compare rows within a column rather than reading the drop as a server speedup. `brief_from_job_post` is dominated by the model call and isn't benchmarked here.
 
 ## Security decisions
 

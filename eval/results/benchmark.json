@@ -43,7 +43,7 @@
     }
   },
   "production": {
-    "label": "production",
+    "label": "production-before (89e893a)",
     "url": "https://one-link-eta.vercel.app/mcp",
     "n": 50,
     "at": "2026-11-19T17:25:24.789Z",
@@ -74,6 +74,42 @@
         "median": 287.5,
         "p95": 672,
         "max": 880.2,
+        "errors": 0
+      }
+    }
+  },
+  "production_after": {
+    "label": "production-after (f2dd299)",
+    "url": "https://one-link-eta.vercel.app/mcp",
+    "n": 50,
+    "at": "2026-11-20T00:17:27.863Z",
+    "results": {
+      "initialize": {
+        "n": 50,
+        "median": 97,
+        "p95": 143.3,
+        "max": 204.8,
+        "errors": 0
+      },
+      "tools/list": {
+        "n": 50,
+        "median": 96,
+        "p95": 106.8,
+        "max": 107.9,
+        "errors": 0
+      },
+      "list_briefs (limit 20)": {
+        "n": 50,
+        "median": 95.1,
+        "p95": 111.7,
+        "max": 143.9,
+        "errors": 0
+      },
+      "list_briefs (q filter)": {
+        "n": 50,
+        "median": 99.9,
+        "p95": 128.1,
+        "max": 234.9,
         "errors": 0
       }
     }

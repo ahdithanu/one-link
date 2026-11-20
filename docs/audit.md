@@ -47,7 +47,7 @@ Not using an MCP SDK is not treated as a defect. The server is about 200 lines w
 | 15 | Low | Security | No global cap: many IPs could each use 5 model calls. | Partly fixed. 60 model calls an hour per instance. Cross-instance is not fixed (see Remaining risks). |
 | 16 | Low | Security | Invalid `brief_from_job_post` calls used up the caller's hourly allowance. | Fixed. Arguments are validated before the limit is checked. |
 | 17 | Low | Security | No app-level request size limit (only the platform's 4.5 MB). | Fixed. 64 KB cap, read incrementally, 413 plus `connection: close`. |
-| 18 | Low | Reliability | Every tool call did a Blob read with caching off (`useCache: false`). Measured production `list_briefs` median was 282 ms against 129 ms for `initialize`, which needs no data. | Fixed for MCP. 60 s in-memory board cache per instance. Pages still read fresh. The production effect is not measured yet (needs a deploy). |
+| 18 | Low | Reliability | Every tool call did a Blob read with caching off (`useCache: false`). Measured production `list_briefs` median was 282 ms against 129 ms for `initialize`, which needs no data. | Fixed for MCP. 60 s in-memory board cache per instance. Pages still read fresh. After deploy, production `list_briefs` fell from a 282 ms to a 95 ms median, the same as `initialize`. |
 | 19 | Low | Security | The cron secret was compared with `!==`, which is not constant-time. | Fixed. `timingSafeEqual` on SHA-256 digests. |
 | 20 | Info | Improvement | No logs, so failures and model spend were invisible. | Fixed. One JSON line per MCP request (see README). |
 
