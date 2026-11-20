@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Brief, RoleListing } from "@/lib/data";
 import { BriefView } from "./BriefView";
 
@@ -48,7 +48,95 @@ function PasteBox({ onBrief }: { onBrief: (b: Live, id: string | null) => void }
   );
 }
 
+type NetRow = { id: string; short: string; title: string; company: string; location: string | null; ageDays: number; payPosted: boolean; buildTitle: string | null };
+
+const NET_FUNCTIONS = ["engineering", "product", "design", "research", "sales", "marketing", "operations", "customer", "finance", "hardware_manufacturing"];
+
+// The whole talent network is too big to send to the browser, so it's searched on the server.
+function NetworkBoard() {
+  const [q, setQ] = useState("");
+  const [fn, setFn] = useState("all");
+  const [page, setPage] = useState(0);
+  const [rows, setRows] = useState<NetRow[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    const params = new URLSearchParams({ q: q.trim(), page: String(page) });
+    if (fn !== "all") params.set("fn", fn);
+    let stale = false;
+    setState("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/roles?${params}`);
+        const data = await res.json();
+        if (stale) return;
+        if (!res.ok) throw new Error();
+        setRows((prev) => (page === 0 ? data.roles : [...prev, ...data.roles]));
+        setTotal(data.total);
+        setHasMore(data.hasMore);
+        setState("ready");
+      } catch {
+        if (!stale) setState("error");
+      }
+    }, page === 0 ? 300 : 0);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [q, fn, page]);
+
+  return (
+    <>
+      <div className="controls">
+        <input aria-label="Search the network" placeholder="Search role, company or skill" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} />
+        <div className="chips">
+          {["all", ...NET_FUNCTIONS].map((name) => (
+            <button key={name} className="chip" type="button" aria-pressed={fn === name} onClick={() => { setFn(name); setPage(0); }}>{name.replace("_", " ")}</button>
+          ))}
+        </div>
+      </div>
+      <p className="note">{total === null ? "Searching…" : `${total.toLocaleString()} matching roles. Briefs are written when you ask for one.`}</p>
+      {state === "error" && <p className="empty">The talent network didn&apos;t answer. Try again in a minute.</p>}
+      {state !== "error" && rows.length === 0 && state === "ready" && <p className="empty">No roles match that search.</p>}
+      {rows.length > 0 && (
+        <ul className="roles">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <Link href={r.buildTitle ? `/r/${r.short}` : `/j/${r.id}`}>
+                <span className="t">{r.title}</span>
+                <span className="c">{r.company}{r.location ? ` · ${r.location}` : ""} · {r.ageDays}d old{r.payPosted ? "" : " · pay not posted"}</span>
+                <span className="b">{r.buildTitle ? `Build: ${r.buildTitle}` : "Get a brief"}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasMore && state === "ready" && (
+        <button className="btn ghost more" type="button" onClick={() => setPage(page + 1)}>Show more</button>
+      )}
+    </>
+  );
+}
+
 function Board({ roles }: { roles: RoleListing[] }) {
+  const [scope, setScope] = useState<"speedrun" | "network">("speedrun");
+  return (
+    <section className="board" id="roles">
+      <div className="board-head">
+        <h2>Or start with a role</h2>
+        <div className="chips">
+          <button className="chip" type="button" aria-pressed={scope === "speedrun"} onClick={() => setScope("speedrun")}>Speedrun · briefs ready</button>
+          <button className="chip" type="button" aria-pressed={scope === "network"} onClick={() => setScope("network")}>Whole talent network</button>
+        </div>
+      </div>
+      {scope === "speedrun" ? <SpeedrunBoard roles={roles} /> : <NetworkBoard />}
+    </section>
+  );
+}
+
+function SpeedrunBoard({ roles }: { roles: RoleListing[] }) {
   const [q, setQ] = useState("");
   const [fn, setFn] = useState("all");
   const [shown, setShown] = useState(PAGE);
@@ -67,11 +155,8 @@ function Board({ roles }: { roles: RoleListing[] }) {
   }, [roles, q, fn]);
 
   return (
-    <section className="board" id="roles">
-      <div className="board-head">
-        <h2>Or start with a speedrun role</h2>
-        <span className="note">{matches.length} of {roles.length} live roles, briefs ready</span>
-      </div>
+    <>
+      <p className="note">{matches.length} of {roles.length} live speedrun roles, briefs ready</p>
       <div className="controls">
         <input aria-label="Search roles" placeholder="Search role, company or city" value={q} onChange={(e) => { setQ(e.target.value); setShown(PAGE); }} />
         <div className="chips">
@@ -98,7 +183,7 @@ function Board({ roles }: { roles: RoleListing[] }) {
       {shown < matches.length && (
         <button className="btn ghost more" type="button" onClick={() => setShown(shown + PAGE)}>Show more</button>
       )}
-    </section>
+    </>
   );
 }
 

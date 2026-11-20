@@ -19,7 +19,7 @@ const BANDS: Record<string, [number, number, number]> = {
   operations: [125000, 158000, 201250],
 };
 
-type Job = {
+export type Job = {
   id: string;
   title: string;
   company: string;
@@ -61,7 +61,7 @@ function conflictFor(workplace: string, desc: string) {
   return null;
 }
 
-function toRole(job: Job): Role {
+export function toRole(job: Job): Role {
   const fn = job.function && BANDS[job.function] ? job.function : "other";
   const [p25, median, p75] = BANDS[fn];
   const pay: Pay = job.comp_min && job.comp_max ? { kind: "posted", min: job.comp_min, max: job.comp_max } : { kind: "estimate", function: fn, p25, median, p75 };

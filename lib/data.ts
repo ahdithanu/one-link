@@ -5,7 +5,9 @@ import { loadBoard } from "./store";
 
 export type Pay =
   | { kind: "posted"; min: number; max: number }
-  | { kind: "estimate"; function: string; p25: number; median: number; p75: number };
+  | { kind: "estimate"; function: string; p25: number; median: number; p75: number }
+  // Network roles outside speedrun: the speedrun pay bands don't describe them.
+  | { kind: "unposted" };
 
 export type Role = {
   id: string;

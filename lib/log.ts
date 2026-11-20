@@ -12,6 +12,7 @@ export type ErrorCategory =
   | "invalid_arguments"
   | "not_found"
   | "rate_limited"
+  | "budget_exhausted"
   | "fetch_failed"
   | "not_a_job_post"
   | "model_unavailable"
