@@ -1,14 +1,31 @@
 import { handleMcp } from "@/lib/mcp-http";
 import type { ToolContext } from "@/lib/mcp";
+import type { NetworkDeps } from "@/lib/network";
 
 process.env.ONE_LINK_LOG ??= "off";
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
+// Tests never reach the real talent network: by default every lookup fails as "not found".
+export const offlineNetwork = (over: Partial<NetworkDeps> = {}): NetworkDeps => ({
+  getJson: async () => {
+    throw new Error("offline");
+  },
+  hasKey: () => false,
+  generate: async () => null,
+  loadSaved: async () => null,
+  save: async () => {},
+  briefsToday: async () => 0,
+  countBrief: async () => {},
+  dailyCap: () => 100,
+  ...over,
+});
+
 export const ctx = (over: Partial<ToolContext> = {}): ToolContext => ({
   origin: "https://example.test",
   limited: () => false,
   eventLimited: () => true,
+  network: offlineNetwork(),
   ...over,
 });
 

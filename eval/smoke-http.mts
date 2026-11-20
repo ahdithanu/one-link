@@ -21,7 +21,7 @@ check("notification -> 202 empty", r.status === 202 && (await r.text()) === "");
 
 r = await post(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }), { "mcp-protocol-version": "2025-06-18" });
 j = await r.json();
-check("tools/list returns 3 tools", j.result?.tools?.length === 3, JSON.stringify(j).slice(0, 200));
+check("tools/list returns 5 tools", j.result?.tools?.length === 5, JSON.stringify(j).slice(0, 200));
 
 r = await post(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_briefs", arguments: { limit: 2 } } }));
 j = await r.json();
