@@ -43,15 +43,19 @@ Fields:
 let client: Anthropic | null = null;
 const getClient = () => (client ??= new Anthropic({ timeout: 45_000, maxRetries: 1 }));
 
-export async function generateBrief(jobPost: string, onUsage?: (usage: Usage) => void): Promise<GeneratedBrief | null> {
+// Production uses MODEL at low effort. The quality eval can try other settings; nothing else does.
+export type GenerateOptions = { model?: string; effort?: "low" | "medium" | "high" };
+
+export async function generateBrief(jobPost: string, onUsage?: (usage: Usage) => void, opts: GenerateOptions = {}): Promise<GeneratedBrief | null> {
+  const model = opts.model ?? MODEL;
   const response = await getClient().messages.parse({
-    model: MODEL,
+    model,
     max_tokens: 4000,
     system: SYSTEM,
-    output_config: { effort: "low", format: zodOutputFormat(BriefSchema) },
+    output_config: { effort: opts.effort ?? "low", format: zodOutputFormat(BriefSchema) },
     messages: [{ role: "user", content: `<job_post>\n${jobPost}\n</job_post>` }],
   });
-  onUsage?.({ model: MODEL, input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens });
+  onUsage?.({ model, input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens });
   if (response.stop_reason !== "end_turn") return null;
   const brief = response.parsed_output;
   if (!brief || !brief.build.title) return null;
