@@ -116,8 +116,11 @@ const events = sharedLimiter("event", 60);
 export const eventLimited = (ip: string) => events(callerKey(ip));
 const pageEvents = sharedLimiter("page-event", 60);
 export const pageEventLimited = (ip: string) => pageEvents(callerKey(ip));
+// Every request that can reach the talent network API (search, role lookups, job pages) shares one
+// per-caller budget, so no one can drive unlimited upstream calls through One Link.
 const searches = sharedLimiter("search", 600);
 export const searchLimited = (ip: string) => searches(callerKey(ip));
+export const upstreamLimited = searchLimited;
 
 // Daily brief budget, reserved before the model call so concurrent requests can't overshoot it.
 // Returns false when the day's budget is used up. INCR is atomic, so this holds across instances.
