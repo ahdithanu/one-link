@@ -127,11 +127,14 @@ There are three layers, kept apart because they answer different questions.
    - invalid parameters
 
    Results go to `eval/results/tools.json`.
-3. **Model eval** (`npm run eval:model`, needs `ANTHROPIC_API_KEY`). It runs brief generation on a frozen dataset:
-   - 11 real public speedrun posts across 9 functions
+3. **Model eval** (`npm run eval:model`, needs `ANTHROPIC_API_KEY`). It runs brief generation on a frozen dataset of 25 cases:
+   - 11 real speedrun posts across 9 functions (`eval/dataset/posts.json`)
+   - 10 roles at non-speedrun companies, one per function (engineering, product, design, sales, marketing, operations, finance, customer, research, hardware), from the talent network (`eval/dataset/external.json`)
    - 4 adversarial cases: a non-job text, a prompt injection, a thin post, and a Spanish post
 
-   It scores each output with deterministic checks: right outcome, company and title match, verbatim evidence, format rules, injected strings absent, and no numbers missing from the post. A separate model call then acts as a grounding judge: it lists claims the post doesn't support and rates relevance. The judge is a model too, so its numbers are an estimate, not ground truth. This eval is not in CI because it costs money.
+   Two layers, reported separately. **Deterministic checks** (exact): right outcome, company and title match, verbatim evidence, format rules, injected strings absent, and no numbers that aren't in the post. **A rubric judge** (a model, so an estimate) scores ten dimensions from 1 to 5 against written anchors: understanding, role specificity, project relevance, technical feasibility, weekend feasibility, actionability, requirement accuracy, outreach quality, assumption discipline and overall usefulness. It also lists unsupported claims and names each brief's biggest weakness (`eval/quality.ts`).
+
+   `--config prod,opus-medium,sonnet-low` compares production (Opus 5.5, low effort) with alternatives. The command prints a cost estimate and runs nothing until you add `--confirm`. `--dry-run` runs the whole pipeline with stub models, at no cost. `npx tsx eval/quality-report.mts <results>` writes a markdown report of the weakest dimensions and briefs. This eval isn't in CI because it costs money, and a prompt change shouldn't ship on the judge's scores alone.
 
 ### Measured results
 
@@ -264,10 +267,13 @@ npm run bench -- http://localhost:3210/mcp --n 100 --with-brief
 npx @modelcontextprotocol/conformance@0.1.16 server --url http://localhost:3210/mcp --suite all
 ```
 
-The model eval costs about 30 model calls. It writes `eval/results/model-<date>.json`:
+The model eval runs 25 cases and judges each one. It writes `eval/results/model-<date>.json`, then turns that into a report:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... npm run eval:model
+ANTHROPIC_API_KEY=sk-ant-... npm run eval:model                         # cost estimate only
+ANTHROPIC_API_KEY=sk-ant-... npm run eval:model -- --confirm            # production config, about $1.90
+ANTHROPIC_API_KEY=sk-ant-... npm run eval:model -- --config prod,opus-medium,sonnet-low --confirm   # about $5.20
+npx tsx eval/quality-report.mts eval/results/model-<date>.json > eval/results/quality-report.md
 ```
 
 To refresh the frozen eval dataset from the live board (paced to stay under the API's rate limit):

@@ -18,7 +18,8 @@
     "test:redis": "tsx --test test-integration/*.test.ts",
     "report:logs": "tsx eval/log-report.mts",
     "check:env": "node scripts/check-env.mjs",
-    "check:conformance": "node scripts/check-conformance.mjs"
+    "check:conformance": "node scripts/check-conformance.mjs",
+    "eval:report": "tsx eval/quality-report.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
