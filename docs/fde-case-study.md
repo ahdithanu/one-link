@@ -59,11 +59,16 @@ The full list, with severities, is in [docs/audit.md](audit.md). The ones that m
 
 ## Evaluation methodology and results
 
-- **Tests (138, all passing).**
-  - Protocol: 30. Lifecycle, version negotiation, every error code, size and header rules.
-  - Tool contracts: 30. Every id form, filters, limits, and invalid arguments.
-  - `makeBrief`: 16. Every failure mapping, with an injected model and fetcher.
-  - Security: 62. Address classification, URL rules, socket-level lookup refusal, limiter behavior, body caps, log hygiene, Host allowlist.
+- **Tests (247, all passing in CI).** They cover:
+  - protocol lifecycle and every error code
+  - tool contracts and output schemas
+  - brief generation failure mapping
+  - SSRF and URL rules, body caps, Host allowlist, log hygiene
+  - rate limits, the daily budget and the brief lock (with in-memory Redis stand-ins)
+  - talent API retries, the breaker and the stale cache
+  - progress notifications, route behavior, retention and metrics
+
+  Separately, 4 cross-process tests run against a real Redis in CI.
 - **Deterministic tool eval: 2,426 / 2,426 checks pass** over all 195 open roles in the bundled board, across 21 check types. The 100% isn't surprising: the bundled briefs were filtered by the same rules when they were generated. The eval's value is that it now runs on every push, so a regression in the handlers or the data shows up immediately.
 - **Conformance:** every official conformance scenario that applies to a tools-only server passes. The 24 other scenarios exercise prompts, resources, logging, completion, or the suite's own fixture tools, and the server correctly rejects them. MCP Inspector CLI 2.16.0 lists and calls tools correctly. Claude Code reports the production server as connected.
 - **Model eval: built, not yet run.** 25 frozen cases: 11 speedrun posts, 10 non-speedrun roles (one per function) and 4 adversarial cases. Deterministic checks are reported separately from a ten-dimension rubric judge. Configs can be compared (production Opus 5.5 at low effort, Opus at medium, Sonnet 5.5). A cost estimate must be confirmed before anything is spent, and a dry run exercises the whole pipeline for free. No quality numbers are published until it runs with a real key.

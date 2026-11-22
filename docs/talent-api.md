@@ -13,7 +13,7 @@ Checked on 2026-11-22.
 | Identification | The docs ask integrations to pass `?source=<your-integration>`. One Link sends `source=one-link` on every call, and `user-agent: one-link`. |
 | Caching upstream | Edge-cached for 1 to 5 minutes (`cache-control: public, s-maxage=60, stale-while-revalidate=600` observed). |
 | Usage limits | Not published as numbers. Per the developer page, "heavy anonymous scraping gets rate-limited at the edge." A fast crawl while building the eval dataset hit Cloudflare error 1015 (rate limited). |
-| Paging | Lists are capped: `/jobs` stops at page 200 (about 10,000 of the ~23,500 roles), so One Link doesn't keep a full copy. |
+| Paging | Lists are capped: `/jobs` stops at page 200 (about 10,000 of the roughly 22,000 to 24,000 roles listed on a given day), so One Link doesn't keep a full copy. |
 | Terms | The site links a16z's general Terms of Use (`https://a16z.com/terms-of-use`). They haven't been reviewed here for API reuse, and that's not an engineering question. |
 
 ## How One Link calls it
