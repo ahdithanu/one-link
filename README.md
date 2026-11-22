@@ -38,7 +38,7 @@ Each brief puts the role's age and pay first, so nobody spends a weekend on a li
 - One real network-role brief was written in about 10 s, saved, and served back over MCP.
 - No production data has been deleted. The dry-run cleanup found nothing to remove.
 
-**Not yet in production:** everything merged after v0.5.0 (distributed lock, Redis-native limits, health endpoint, circuit breaker, progress notifications, UX and security fixes) needs a deploy. Global limits also need Upstash connected (see [docs/runbook.md](docs/runbook.md)). **Not yet measured:** brief quality. The eval is built but needs a real API key to run.
+**Deployed:** v0.6.0 on 2026-11-22 (MCP `serverInfo.version`). Production runs the distributed lock, health endpoint, circuit breaker, progress notifications, and the UX and security fixes. Progress notifications and a real brief written, saved and served were verified on production with the official SDK client. **Not yet global:** rate limits, the budget and the lock are per instance until Upstash is connected (see [docs/runbook.md](docs/runbook.md)). **Not yet measured:** brief quality. The eval is built but needs a real API key to run.
 
 This is a public demo with production-minded engineering, not a system proven under sustained production traffic.
 
