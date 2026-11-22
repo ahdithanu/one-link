@@ -148,6 +148,58 @@ export async function handleMcp(raw: string, headers: Headers, ctx: ToolContext)
   return { status: rpc.status, body: rpc.body };
 }
 
+// Progress notifications. A client that wants them sends `_meta.progressToken` on tools/call and
+// accepts text/event-stream (MCP spec, Streamable HTTP). For the two slow tools only, the answer is
+// then an SSE stream: notifications/progress as the tool moves through real phases, a heartbeat
+// every 5 s with the elapsed time, then the JSON-RPC response. Everything else stays plain JSON, so
+// clients that don't ask for progress see no change. Not every client sends a progress token.
+const SLOW_TOOLS = new Set(["brief_for_job", "brief_from_job_post"]);
+export const HEARTBEAT_MS = 5000;
+
+export function progressToken(raw: string, headers: Headers): string | number | null {
+  if (!(headers.get("accept") ?? "").includes("text/event-stream")) return null;
+  // Requests the protocol gates would reject keep their normal HTTP status.
+  if (!hostAllowed(headers.get("host")) || Buffer.byteLength(raw) > MAX_BODY_BYTES) return null;
+  const version = headers.get("mcp-protocol-version");
+  if (version && !VERSIONS.includes(version)) return null;
+  try {
+    const m = JSON.parse(raw);
+    if (!isObject(m) || m.jsonrpc !== "2.0" || m.method !== "tools/call" || (typeof m.id !== "string" && typeof m.id !== "number")) return null;
+    const params = m.params as { name?: unknown; _meta?: { progressToken?: unknown } } | undefined;
+    if (typeof params?.name !== "string" || !SLOW_TOOLS.has(params.name)) return null;
+    const token = params._meta?.progressToken;
+    return typeof token === "string" || typeof token === "number" ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+export function streamMcp(raw: string, headers: Headers, ctx: ToolContext, token: string | number, heartbeatMs = HEARTBEAT_MS): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      const started = Date.now();
+      let progress = 0;
+      let phase = "Working on it";
+      const send = (msg: unknown) => controller.enqueue(enc.encode(`event: message\ndata: ${JSON.stringify(msg)}\n\n`));
+      const notify = () =>
+        send({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: { progressToken: token, progress: ++progress, message: `${phase} (${Math.round((Date.now() - started) / 1000)} s)` },
+        });
+      const heartbeat = setInterval(notify, heartbeatMs);
+      handleMcp(raw, headers, { ...ctx, progress: (p) => ((phase = p), notify()) })
+        .then(({ body }) => send(body))
+        .catch(() => send({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" } }))
+        .finally(() => {
+          clearInterval(heartbeat);
+          controller.close();
+        });
+    },
+  });
+}
+
 // Reads at most `max` bytes so an oversized body can't be buffered whole.
 export async function readCapped(body: ReadableStream<Uint8Array> | null, max = MAX_BODY_BYTES): Promise<string> {
   if (!body) return "";
