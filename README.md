@@ -94,7 +94,7 @@ claude mcp add --transport http speedrun-talent https://mcp.speedrun-talent-netw
 | `brief_for_job` | `job`: UUID, 8-hex prefix, or job URL | The role's brief, written from its listing if nobody has asked before, and a `/j/<id>` URL | An existing brief is free. A new one is one model call, counts toward 5 an hour per caller, and stops at the daily cap |
 | `brief_from_job_post` | `job_post`: description or public `https` URL (12 to 20,000 characters; a pasted description needs at least 200) | A new brief and a shareable URL. Takes 10 to 30 seconds. | One model call. Saves the brief (never the post). 5 an hour per caller. |
 
-Invalid arguments come back as tool errors (`isError: true`) with a message saying what to fix. An unknown tool is JSON-RPC -32602, and an unknown method is -32601.
+Every tool declares an `outputSchema` (JSON Schema 2020-12) generated from the zod schemas in `lib/mcp-output.ts`, and tests check real results against it, so clients can validate `structuredContent`. Invalid arguments come back as tool errors (`isError: true`) with a message saying what to fix. An unknown tool is JSON-RPC -32602, and an unknown method is -32601.
 
 ### Protocol behavior
 
@@ -113,7 +113,7 @@ Invalid arguments come back as tool errors (`isError: true`) with a message sayi
 
 There are three layers, kept apart because they answer different questions.
 
-1. **Tests** (`npm test`, 176 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
+1. **Tests** (`npm test`, 188 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
 2. **Deterministic tool eval** (`npm run eval:tools`). Every open role on the bundled board is run through the real tool handlers. It checks:
    - each id form resolves
    - output schema
@@ -136,7 +136,7 @@ There are three layers, kept apart because they answer different questions.
 
 | What | Result | Where measured |
 | --- | --- | --- |
-| Unit, protocol and security tests | 176 / 176 pass | Local, Node 26 |
+| Unit, protocol and security tests | 188 / 188 pass | Local, Node 26 |
 | Deterministic tool eval | 2,426 / 2,426 checks pass over 195 open roles (21 check types) | Local, bundled board as of 2026-10-31 |
 | HTTP smoke test | 13 / 13 | Local `next start` |
 | Official MCP conformance suite | Every scenario that applies to a tools-only server passes (7). The other 24 test features this server doesn't offer. [Details](eval/results/conformance.md) | Local |
@@ -181,6 +181,10 @@ Every MCP request writes one JSON line to stdout, which ends up in Vercel's runt
 ```
 
 `error_category` is one of: `parse_error`, `invalid_request`, `unsupported_version`, `forbidden_host`, `payload_too_large`, `method_not_found`, `unknown_tool`, `invalid_arguments`, `not_found`, `rate_limited`, `fetch_failed`, `not_a_job_post`, `model_unavailable`, `model_rate_limited`, `model_error` or `internal`. Set `ONE_LINK_LOG=off` to silence it.
+
+### Production monitor
+
+`.github/workflows/monitor.yml` runs the read-only smoke test against production every 15 minutes, with `--live` so it also checks network search and the home page. It retries once after 30 seconds, and a failed run emails the repository owner. Nothing pages a phone yet, and GitHub pauses scheduled workflows in a public repository after 60 days without commits.
 
 ## Run it locally
 
@@ -263,6 +267,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs type check, lint, tests, the to
 - Network search depends on the talent network's public API. There is no local copy, because the API only pages through about 10,000 of its roles. If the API is down, search says so and speedrun briefs keep working.
 - Pay for non-speedrun roles shows only what's posted. The speedrun pay bands aren't applied to other companies.
 - The daily cap is counted from blob markers, so two instances racing at the limit can go a few briefs over.
+- Two requests for the same new brief share one model call only when they reach the same instance. Across instances, both can write it. A shared store would make this a real lock.
 - Finished work is saved in the person's browser. Nothing reaches a founder or speedrun.
 - The founder queue uses made-up sample entries.
 - No one at speedrun has seen or approved this.
