@@ -97,3 +97,22 @@ To keep noise low: the monitor alerts only on hard failures, after one retry. La
 2. Redeploy production. Environment variables only load into new deployments.
 3. Check that `/api/health` shows `"scope": "global"` and `"reachable": true`, and that `npm run check:env` shows Redis as ok.
 4. Set the repository variable `EXPECT_GLOBAL_LIMITS=1`.
+
+## Data retention
+
+The policy lives in `lib/retention.ts` and is unit tested. A dry run lists what it would remove and why, and deletes nothing:
+
+```bash
+vercel env run -e production -- npx tsx scripts/cleanup.mts
+```
+
+| Data | Policy | Tradeoff |
+| --- | --- | --- |
+| `board/latest.json` | Keep (overwritten daily) | The live board |
+| `briefs/<id>.json` (pasted posts) | Keep | They're share links people may have sent to a founder. They're small (23 so far), and deleting one breaks a link without warning. |
+| `jobbriefs/<job>.json` (network roles) | Remove 30 days after the role closes | Shared by everyone while the role is live. The grace period covers links sent just before it closed. Unknown status always keeps. |
+| `spend/<day>/…` markers | Remove after 2 days | Only today's markers count toward the budget (when Redis isn't configured) |
+| `events/<name>/…` usage events | Keep | They're the counts on `/why`, so deleting them would change public numbers. If they grow large, roll them up into one count file per event and teach `countEvents` to read it, then delete the raw files. |
+| Redis keys | Expire on their own | Rate limits after 1 h, the budget after 2 days, locks after 90 s |
+
+The first dry run against production (2026-11-22) found 264 blobs (539 KB) and would remove nothing. Deleting needs both `--apply` and `CONFIRM_DELETE=yes`, and should only follow a reviewed dry run.
