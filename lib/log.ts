@@ -13,6 +13,7 @@ export type ErrorCategory =
   | "not_found"
   | "rate_limited"
   | "budget_exhausted"
+  | "brief_in_progress"
   | "fetch_failed"
   | "not_a_job_post"
   | "model_unavailable"

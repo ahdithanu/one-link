@@ -166,7 +166,7 @@ Local numbers are from a laptop calling `next start` over loopback with the bund
   - Briefs for network roles also stop at a daily cap (`DAILY_BRIEF_CAP`, default 100). A slot is reserved with an atomic Redis counter before the model call, and given back if the call fails. At roughly $0.03 to $0.06 a brief, that bounds this path to about $3 to $6 a day.
   - Network search: 600 an hour per caller, and identical searches are cached for 5 minutes.
   - 60 usage events an hour per caller, separately for agents and for pages.
-  - With Upstash Redis configured (`@upstash/ratelimit`, sliding window), every limit holds across all instances. Callers are keyed by an HMAC of their IP, so raw IPs never reach Redis.
+  - With Upstash Redis configured, every limit holds across all instances. Each check is one atomic Lua script (a sliding-window log using the Redis server's clock, so instances agree on time). It uses only plain Redis commands, so the same code runs on Upstash and on a local Redis in tests. Callers are keyed by an HMAC of their IP, so raw IPs never reach Redis.
   - If Redis isn't configured, errors, or takes over 1.5 s, each limit falls back to a sliding window in that instance's memory (bounded at 10k callers), and the daily cap falls back to counting marker blobs. An outage weakens the limits but never removes them.
 - **Input limits.** 64 KB request body. zod validation for every tool argument, done before any rate limit is used.
 - **Prompt injection.** The job post is wrapped and labeled as untrusted data. Output is checked against a schema, and `evidence` is kept only if it appears in the post word for word.
@@ -182,6 +182,10 @@ Every MCP request writes one JSON line to stdout, which ends up in Vercel's runt
 ```
 
 `error_category` is one of: `parse_error`, `invalid_request`, `unsupported_version`, `forbidden_host`, `payload_too_large`, `method_not_found`, `unknown_tool`, `invalid_arguments`, `not_found`, `rate_limited`, `fetch_failed`, `not_a_job_post`, `model_unavailable`, `model_rate_limited`, `model_error` or `internal`. Set `ONE_LINK_LOG=off` to silence it.
+
+### Health
+
+`GET /api/health` reports whether rate limits are global or per instance, whether Redis is reachable and its latency, today's brief budget use against the cap, and whether a model key is configured. It never includes secret values. A `degraded` list names anything running weaker than intended, so a fallback to per-instance limits is visible rather than silent. Results are cached for 15 seconds.
 
 ### Production monitor
 
@@ -238,6 +242,15 @@ Then, in a second terminal:
 npm run smoke -- http://localhost:3210/mcp
 ```
 
+Distributed limits and the brief lock, across separate processes against a real Redis (the same check CI runs):
+
+```bash
+docker network create onelink-test
+docker run -d --name ol-redis --network onelink-test redis:7.4-alpine
+docker run -d --name ol-srh --network onelink-test -p 8079:80 -e SRH_MODE=env -e SRH_TOKEN=local-test-token -e SRH_CONNECTION_STRING=redis://ol-redis:6379 hiett/serverless-redis-http:latest
+ONE_LINK_TEST_REDIS=1 UPSTASH_REDIS_REST_URL=http://localhost:8079 UPSTASH_REDIS_REST_TOKEN=local-test-token npm run test:redis
+```
+
 ```bash
 npm run bench -- http://localhost:3210/mcp --n 100 --with-brief
 ```
@@ -268,7 +281,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs type check, lint, tests, the to
 - Ready-made briefs exist only for speedrun portfolio roles. Other talent network roles get a brief the first time someone asks (`/j/<id>`, `brief_for_job`), and jobs elsewhere go through `brief_from_job_post`.
 - Network search depends on the talent network's public API. There is no local copy, because the API only pages through about 10,000 of its roles. If the API is down, search says so and speedrun briefs keep working.
 - Pay for non-speedrun roles shows only what's posted. The speedrun pay bands aren't applied to other companies.
-- Two requests for the same new brief share one model call only when they reach the same instance. Across instances, both can write it. A shared store would make this a real lock.
+- Two requests for the same new brief share one model call across instances only while Redis is reachable (a `SET NX` lock per job, 90 s expiry, released only by its owner). Without Redis, requests on the same instance still share one call; requests on different instances can both write it.
 - Finished work is saved in the person's browser. Nothing reaches a founder or speedrun.
 - The founder queue uses made-up sample entries.
 - No one at speedrun has seen or approved this.

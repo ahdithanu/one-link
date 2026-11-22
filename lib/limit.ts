@@ -1,5 +1,4 @@
-import { createHmac } from "node:crypto";
-import { Ratelimit } from "@upstash/ratelimit";
+import { createHmac, randomUUID } from "node:crypto";
 import { Redis } from "@upstash/redis";
 
 // Rate limits. With Upstash Redis configured, every limit is counted in Redis and holds across all
@@ -45,6 +44,36 @@ export function callerKey(ip: string, secret = process.env.UPSTASH_REDIS_REST_TO
 
 type Remote = (key: string) => Promise<{ success: boolean; reason?: string }>;
 
+// Sliding-window log in one atomic script: drop entries older than the window, count the rest,
+// admit if under the limit. It uses the Redis server's clock, so every instance agrees on time,
+// and only plain commands, so it runs the same on Upstash and on a local Redis.
+const SLIDING_WINDOW = `
+local t = redis.call("TIME")
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local window = tonumber(ARGV[1])
+redis.call("ZREMRANGEBYSCORE", KEYS[1], 0, now - window)
+if redis.call("ZCARD", KEYS[1]) < tonumber(ARGV[2]) then
+  redis.call("ZADD", KEYS[1], now, ARGV[3])
+  redis.call("PEXPIRE", KEYS[1], window)
+  return 1
+end
+return 0`;
+
+export type ScriptStore = Pick<Redis, "eval">;
+export function slidingWindow(store: ScriptStore, name: string, max: number, windowMs = HOUR, timeoutMs = 1500): Remote {
+  return async (key) => {
+    const call = store.eval(SLIDING_WINDOW, [`one-link:rl:${name}:${key}`], [String(windowMs), String(max), randomUUID()]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), timeoutMs)));
+    try {
+      const res = await Promise.race([call, timeout]);
+      return res === "timeout" ? { success: true, reason: "timeout" } : { success: Number(res) === 1 };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 let warned = false;
 function warnOnce() {
   if (warned) return;
@@ -54,9 +83,7 @@ function warnOnce() {
 
 function remoteFor(name: string, max: number): Remote | null {
   const r = getRedis();
-  if (!r) return null;
-  const rl = new Ratelimit({ redis: r, limiter: Ratelimit.slidingWindow(max, "1 h"), prefix: `one-link:rl:${name}`, analytics: false, timeout: 1500 });
-  return (key) => rl.limit(key);
+  return r ? slidingWindow(r, name, max) : null;
 }
 
 // Returns true when `key` is over the limit.
@@ -66,7 +93,7 @@ export function sharedLimiter(name: string, max: number, remote: Remote | null =
     if (remote) {
       try {
         const res = await remote(key);
-        // Ratelimit answers "allowed, reason: timeout" when Redis is slow. Treat that as unknown.
+        // A slow store answers "timeout": treat that as unknown and use the local window.
         if (res.reason !== "timeout") return !res.success;
       } catch {
         // fall through to the local window
