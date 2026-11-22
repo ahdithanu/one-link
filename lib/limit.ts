@@ -1,6 +1,11 @@
-// Sliding-window limits kept in this server instance's memory. On Vercel each instance has its own
-// counts, so these slow down one caller but are not a global guarantee. The Anthropic workspace
-// spend cap is the hard ceiling on model cost.
+import { createHmac } from "node:crypto";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+// Rate limits. With Upstash Redis configured, every limit is counted in Redis and holds across all
+// server instances. Without it, or when Redis errors or is slow, each limit falls back to a
+// sliding window in this instance's memory, so an outage weakens the limits but never removes them.
+// The Anthropic workspace spend cap stays the hard ceiling on model cost.
 
 const HOUR = 60 * 60 * 1000;
 const MAX_KEYS = 10_000;
@@ -21,14 +26,87 @@ export function createLimiter(max: number, windowMs = HOUR) {
   };
 }
 
-export const PER_IP = 5;
-// Model calls: 5 an hour per caller, and at most 60 an hour per instance whoever is calling.
-const perCaller = createLimiter(PER_IP);
-const perInstance = createLimiter(60);
-export const limited = (ip: string) => perCaller(ip) || perInstance("all");
+// Vercel's Upstash integration sets KV_REST_API_*; a database made on upstash.com uses UPSTASH_REDIS_REST_*.
+export function redisFromEnv(env: Record<string, string | undefined> = process.env): Redis | null {
+  const url = env.UPSTASH_REDIS_REST_URL ?? env.KV_REST_API_URL;
+  const token = env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token, enableTelemetry: false, retry: { retries: 1, backoff: () => 50 } });
+}
 
-// Usage events written by the MCP server: one blob write each, so cap them per caller.
-export const eventLimited = createLimiter(60);
+let redis: Redis | null | undefined;
+export const getRedis = () => (redis === undefined ? (redis = redisFromEnv()) : redis);
+export const limitMode = () => (getRedis() ? "shared" : "per-instance");
+
+// Raw IPs never go to Redis: callers are keyed by an HMAC of the IP with the Redis token as the key.
+export function callerKey(ip: string, secret = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN ?? "local") {
+  return createHmac("sha256", secret).update(ip).digest("base64url").slice(0, 22);
+}
+
+type Remote = (key: string) => Promise<{ success: boolean; reason?: string }>;
+
+let warned = false;
+function warnOnce() {
+  if (warned) return;
+  warned = true;
+  console.warn(JSON.stringify({ event: "rate_limit_fallback", detail: "shared store unavailable, using per-instance limits" }));
+}
+
+function remoteFor(name: string, max: number): Remote | null {
+  const r = getRedis();
+  if (!r) return null;
+  const rl = new Ratelimit({ redis: r, limiter: Ratelimit.slidingWindow(max, "1 h"), prefix: `one-link:rl:${name}`, analytics: false, timeout: 1500 });
+  return (key) => rl.limit(key);
+}
+
+// Returns true when `key` is over the limit.
+export function sharedLimiter(name: string, max: number, remote: Remote | null = remoteFor(name, max)) {
+  const local = createLimiter(max);
+  return async (key: string): Promise<boolean> => {
+    if (remote) {
+      try {
+        const res = await remote(key);
+        // Ratelimit answers "allowed, reason: timeout" when Redis is slow. Treat that as unknown.
+        if (res.reason !== "timeout") return !res.success;
+      } catch {
+        // fall through to the local window
+      }
+      warnOnce();
+    }
+    return local(key);
+  };
+}
+
+export const PER_IP = 5;
+export const PER_HOUR_ALL = 60;
+// Model calls: 5 an hour per caller, and 60 an hour across everyone (per instance without Redis).
+const perCaller = sharedLimiter("brief-caller", PER_IP);
+const perAll = sharedLimiter("brief-all", PER_HOUR_ALL);
+export const limited = async (ip: string) => (await perCaller(callerKey(ip))) || (await perAll("all"));
+
+// Usage events (one blob write each) and network searches, per caller.
+const events = sharedLimiter("event", 60);
+export const eventLimited = (ip: string) => events(callerKey(ip));
+const pageEvents = sharedLimiter("page-event", 60);
+export const pageEventLimited = (ip: string) => pageEvents(callerKey(ip));
+const searches = sharedLimiter("search", 600);
+export const searchLimited = (ip: string) => searches(callerKey(ip));
+
+// Daily brief budget, reserved before the model call so concurrent requests can't overshoot it.
+// Returns false when the day's budget is used up. INCR is atomic, so this holds across instances.
+export type CounterStore = Pick<Redis, "incr" | "decr" | "expire">;
+export async function reserveDaily(store: CounterStore, cap: number, day = new Date().toISOString().slice(0, 10)) {
+  const key = `one-link:spend:${day}`;
+  const n = await store.incr(key);
+  if (n === 1) await store.expire(key, 2 * 24 * 60 * 60);
+  if (n > cap) {
+    await store.decr(key);
+    return null;
+  }
+  return async () => {
+    await store.decr(key);
+  };
+}
 
 // Vercel sets x-forwarded-for and x-real-ip to the connecting client and overwrites any value the
 // client sent. Elsewhere (for example `next start` behind no proxy) both are client-controlled.

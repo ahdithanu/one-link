@@ -39,7 +39,7 @@ flowchart LR
     M["/mcp route<br/>lib/mcp-http.ts<br/>JSON-RPC, Host check, size cap, logging"]
     T["lib/mcp.ts<br/>tool schemas + zod validation"]
     P["Pages + /api/brief"]
-    L["lib/limit.ts<br/>per-caller + per-instance limits"]
+    L["lib/limit.ts<br/>limits shared in Upstash Redis"]
     G["lib/make-brief.ts"]
     F["lib/fetch-post.ts<br/>SSRF-safe fetch"]
     D["lib/data.ts<br/>board (60 s cache for MCP)"]
@@ -113,7 +113,7 @@ Every tool declares an `outputSchema` (JSON Schema 2020-12) generated from the z
 
 There are three layers, kept apart because they answer different questions.
 
-1. **Tests** (`npm test`, 188 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
+1. **Tests** (`npm test`, 199 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
 2. **Deterministic tool eval** (`npm run eval:tools`). Every open role on the bundled board is run through the real tool handlers. It checks:
    - each id form resolves
    - output schema
@@ -136,7 +136,7 @@ There are three layers, kept apart because they answer different questions.
 
 | What | Result | Where measured |
 | --- | --- | --- |
-| Unit, protocol and security tests | 188 / 188 pass | Local, Node 26 |
+| Unit, protocol and security tests | 199 / 199 pass | Local, Node 26 |
 | Deterministic tool eval | 2,426 / 2,426 checks pass over 195 open roles (21 check types) | Local, bundled board as of 2026-10-31 |
 | HTTP smoke test | 13 / 13 | Local `next start` |
 | Official MCP conformance suite | Every scenario that applies to a tools-only server passes (7). The other 24 test features this server doesn't offer. [Details](eval/results/conformance.md) | Local |
@@ -162,11 +162,12 @@ Local numbers are from a laptop calling `next start` over loopback with the bund
 - **SSRF.** Fetching is https only, on port 443, with no credentials in the URL. Every resolved address is checked against the IANA special-purpose ranges inside the socket's own DNS lookup, so DNS rebinding can't swap in a private IP. Up to 4 redirects, each re-checked. 8 s timeout. 1.5 MB streamed cap.
 - **DNS rebinding against the MCP endpoint.** Requests are answered only when `Host` is a hostname the deployment serves: `localhost`, the Vercel deployment, branch and production URLs, and `MCP_ALLOWED_HOSTS`. Origin is not restricted because CORS is open by design.
 - **Rate limits.**
-  - 5 model briefs an hour per caller, and 60 an hour per instance.
-  - Briefs for network roles also stop at a daily cap shared across instances (`DAILY_BRIEF_CAP`, default 100, counted with one marker blob per brief). At roughly $0.03 to $0.06 a brief, that bounds this path to about $3 to $6 a day.
+  - 5 model briefs an hour per caller, and 60 an hour across all callers.
+  - Briefs for network roles also stop at a daily cap (`DAILY_BRIEF_CAP`, default 100). A slot is reserved with an atomic Redis counter before the model call, and given back if the call fails. At roughly $0.03 to $0.06 a brief, that bounds this path to about $3 to $6 a day.
   - Network search: 600 an hour per caller, and identical searches are cached for 5 minutes.
-  - 60 usage events an hour per caller.
-  - All held in memory per instance, and bounded at 10k callers.
+  - 60 usage events an hour per caller, separately for agents and for pages.
+  - With Upstash Redis configured (`@upstash/ratelimit`, sliding window), every limit holds across all instances. Callers are keyed by an HMAC of their IP, so raw IPs never reach Redis.
+  - If Redis isn't configured, errors, or takes over 1.5 s, each limit falls back to a sliding window in that instance's memory (bounded at 10k callers), and the daily cap falls back to counting marker blobs. An outage weakens the limits but never removes them.
 - **Input limits.** 64 KB request body. zod validation for every tool argument, done before any rate limit is used.
 - **Prompt injection.** The job post is wrapped and labeled as untrusted data. Output is checked against a schema, and `evidence` is kept only if it appears in the post word for word.
 - **Logs.** Each line holds the method, tool, request id, status, error category, duration and token usage. Never arguments, post text, IPs or keys (enforced by a test).
@@ -205,6 +206,7 @@ The app runs at http://localhost:3210. Without any environment variables it stil
 | `ANTHROPIC_API_KEY` | Writing new briefs (paste box, `brief_from_job_post`, the daily refresh, the model eval) |
 | `BLOB_READ_WRITE_TOKEN` | Saving briefs, the refreshed board, and usage counts |
 | `CRON_SECRET` | Protecting `/api/cron/refresh` |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Shared rate limits and daily cap. Vercel's Upstash integration sets `KV_REST_API_URL` and `KV_REST_API_TOKEN` instead; either pair works. Without them, limits are per instance |
 | `DAILY_BRIEF_CAP` | New network-role briefs allowed per UTC day across all instances (default 100) |
 | `MCP_ALLOWED_HOSTS` | Extra hostnames the MCP endpoint answers for, comma-separated (for example a custom domain) |
 
@@ -260,13 +262,12 @@ GitHub Actions (`.github/workflows/ci.yml`) runs type check, lint, tests, the to
 
 ## Known limitations
 
-- Rate limits are per instance. Vercel can run several instances, so the real ceiling is the per-instance limit times the instance count. A shared store (for example Upstash Redis) would make it global.
+- Rate limits and the daily cap are only global while Upstash Redis is reachable. During a Redis outage they fall back to per-instance limits, so the ceiling is the per-instance limit times the instance count until Redis is back.
 - `x-real-ip` and `x-forwarded-for` are trusted. Vercel overwrites them, but behind any other proxy they're client-controlled.
 - The model eval uses one run per case and a model judge. That's enough to catch regressions, not to claim a quality level.
 - Ready-made briefs exist only for speedrun portfolio roles. Other talent network roles get a brief the first time someone asks (`/j/<id>`, `brief_for_job`), and jobs elsewhere go through `brief_from_job_post`.
 - Network search depends on the talent network's public API. There is no local copy, because the API only pages through about 10,000 of its roles. If the API is down, search says so and speedrun briefs keep working.
 - Pay for non-speedrun roles shows only what's posted. The speedrun pay bands aren't applied to other companies.
-- The daily cap is counted from blob markers, so two instances racing at the limit can go a few briefs over.
 - Two requests for the same new brief share one model call only when they reach the same instance. Across instances, both can write it. A shared store would make this a real lock.
 - Finished work is saved in the person's browser. Nothing reaches a founder or speedrun.
 - The founder queue uses made-up sample entries.
