@@ -251,9 +251,10 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
       ? rows.map((r) => `- ${r.title} at ${r.company} (${r.posted_days_ago}d old${r.has_brief ? ", brief ready" : ""}) [job_id ${r.job_id}]`).join("\n")
       : "No matching roles.";
     const more = found.hasMore ? ` More on page ${found.page + 1}.` : "";
+    const stale = found.staleMinutes ? ` The talent network isn't answering, so these results are from about ${found.staleMinutes} min ago.` : "";
     return done({
-      ...text(`${found.total} matching roles, page ${found.page}.${more}\n${body}`),
-      structuredContent: { total: found.total, page: found.page, has_more: found.hasMore, roles: rows },
+      ...text(`${found.total} matching roles, page ${found.page}.${more}${stale}\n${body}`),
+      structuredContent: { total: found.total, page: found.page, has_more: found.hasMore, roles: rows, ...(found.staleMinutes && { stale_minutes: found.staleMinutes }) },
     });
   }
 

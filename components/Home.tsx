@@ -59,6 +59,7 @@ function NetworkBoard() {
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<NetRow[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const [staleMinutes, setStaleMinutes] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -75,6 +76,7 @@ function NetworkBoard() {
         if (!res.ok) throw new Error();
         setRows((prev) => (page === 0 ? data.roles : [...prev, ...data.roles]));
         setTotal(data.total);
+        setStaleMinutes(data.staleMinutes ?? null);
         setHasMore(data.hasMore);
         setState("ready");
       } catch {
@@ -98,6 +100,7 @@ function NetworkBoard() {
         </div>
       </div>
       <p className="note">{total === null ? "Searching…" : `${total.toLocaleString()} matching roles. Briefs are written when you ask for one.`}</p>
+      {staleMinutes && <p className="note">The talent network isn&apos;t answering right now, so these results are from about {staleMinutes} min ago.</p>}
       {state === "error" && <p className="empty">The talent network didn&apos;t answer. Try again in a minute.</p>}
       {state !== "error" && rows.length === 0 && state === "ready" && <p className="empty">No roles match that search.</p>}
       {rows.length > 0 && (

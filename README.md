@@ -279,7 +279,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs type check, lint, tests, the to
 - `x-real-ip` and `x-forwarded-for` are trusted. Vercel overwrites them, but behind any other proxy they're client-controlled.
 - The model eval uses one run per case and a model judge. That's enough to catch regressions, not to claim a quality level.
 - Ready-made briefs exist only for speedrun portfolio roles. Other talent network roles get a brief the first time someone asks (`/j/<id>`, `brief_for_job`), and jobs elsewhere go through `brief_from_job_post`.
-- Network search depends on the talent network's public API. There is no local copy, because the API only pages through about 10,000 of its roles. If the API is down, search says so and speedrun briefs keep working.
+- Network search depends on the talent network's public API (documented, no auth; see [docs/talent-api.md](docs/talent-api.md)). A circuit breaker, one bounded retry and an hour-long stale cache soften outages, but there's no full local copy because the API only pages through about 10,000 roles. There's also no agreement with the speedrun team about reuse or volume, which is a business dependency.
 - Pay for non-speedrun roles shows only what's posted. The speedrun pay bands aren't applied to other companies.
 - Two requests for the same new brief share one model call across instances only while Redis is reachable (a `SET NX` lock per job, 90 s expiry, released only by its owner). Without Redis, requests on the same instance still share one call; requests on different instances can both write it.
 - Finished work is saved in the person's browser. Nothing reaches a founder or speedrun.

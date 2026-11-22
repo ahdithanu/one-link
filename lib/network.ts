@@ -4,6 +4,7 @@ import { del, get, list, put } from "@vercel/blob";
 import { generateBrief } from "./brief";
 import type { Board, Brief, Role } from "./data";
 import type { ErrorCategory, Usage } from "./log";
+import { BreakerOpenError, createBreaker } from "./breaker";
 import { getRedis, reserveDaily } from "./limit";
 import { acquireLock, lockHeld, releaseLock } from "./lock";
 import { MIN_POST } from "./make-brief";
@@ -20,7 +21,8 @@ export const PAGE_SIZE = 50;
 export const MAX_PAGE = 200;
 
 export type NetRole = Role & { tier: string | null };
-export type SearchResult = { total: number; page: number; hasMore: boolean; roles: NetRole[] };
+// staleMinutes is set when the talent network is unavailable and this is the last good copy.
+export type SearchResult = { total: number; page: number; hasMore: boolean; roles: NetRole[]; staleMinutes?: number };
 export type SearchQuery = { q?: string; fn?: string; page?: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -35,16 +37,32 @@ export function toNetRole(job: ApiJob, now = Date.now()): NetRole {
   return { ...role, ageDays, pay, tier: job.tier ?? null };
 }
 
-// A small bounded cache: identical searches within a few minutes reuse one API call.
-function ttlCache<T>(ttlMs: number, max = 500) {
-  const entries = new Map<string, { at: number; value: Promise<T> }>();
-  return (key: string, load: () => Promise<T>, now = Date.now()): Promise<T> => {
+// A small bounded cache: identical requests within the TTL reuse one API call. The last good value
+// for each key is also kept for up to STALE_MS, and served (marked stale) if a fresh load fails.
+const STALE_MS = 60 * 60_000;
+type Cached<T> = { value: T; staleMs?: number };
+export function ttlCache<T>(ttlMs: number, max = 500) {
+  const entries = new Map<string, { at: number; value: Promise<Cached<T>> }>();
+  const good = new Map<string, { at: number; value: T }>();
+  const bound = (m: Map<string, unknown>) => m.size >= max && m.delete(m.keys().next().value!);
+  return (key: string, load: () => Promise<T>, now = Date.now()): Promise<Cached<T>> => {
     const hit = entries.get(key);
     if (hit && now - hit.at < ttlMs && now >= hit.at) return hit.value;
-    if (entries.size >= max) entries.delete(entries.keys().next().value!);
-    const value = load();
+    bound(entries);
+    const value = load().then(
+      (v) => {
+        bound(good);
+        good.set(key, { at: Date.now(), value: v });
+        return { value: v };
+      },
+      (err) => {
+        entries.delete(key);
+        const last = good.get(key);
+        if (last && Date.now() - last.at < STALE_MS) return { value: last.value, staleMs: Date.now() - last.at };
+        throw err;
+      },
+    );
     entries.set(key, { at: now, value });
-    value.catch(() => entries.delete(key));
     return value;
   };
 }
@@ -87,10 +105,63 @@ export function redisJobLock(): JobLock | null {
 
 export type SavedJobBrief = { role: NetRole; brief: Brief; at: string };
 
-async function getJson(url: string) {
+// The talent network API (https://speedrun-talent-network.com/developers): public, read-only, no
+// auth. One breaker guards every call. Each call gets an 8 s timeout per attempt and at most one
+// retry, only for network errors, timeouts and 5xx, never for 429, so we respect their rate limit.
+// A 404 is an answer, not an outage, so it doesn't count against the breaker.
+class UpstreamError extends Error {
+  constructor(public status: number) {
+    super(`${status} from the talent network`);
+  }
+}
+const isOutage = (err: unknown) => !(err instanceof UpstreamError) || err.status >= 500 || err.status === 429;
+const retryable = (err: unknown) => !(err instanceof UpstreamError) || err.status >= 500;
+
+export const talentBreaker = createBreaker({
+  onTransition: (from, to) => console.warn(JSON.stringify({ event: "talent_api_breaker", from, to })),
+});
+
+async function attempt(url: string) {
   const res = await fetch(url, { headers: { "user-agent": SOURCE }, signal: AbortSignal.timeout(8000), cache: "no-store" });
-  if (!res.ok) throw new Error(`${res.status} from the talent network`);
+  if (!res.ok) throw new UpstreamError(res.status);
   return res.json();
+}
+
+export async function getJson(url: string) {
+  const op = new URL(url).pathname.endsWith("/jobs") ? "search" : "job";
+  const started = Date.now();
+  let attempts = 0;
+  let status: number | null = null;
+  try {
+    // Answers that aren't outages (a 404, say) are carried out of the breaker so they don't count.
+    const out = await talentBreaker.run(async () => {
+      const once = async () => {
+        attempts++;
+        return await attempt(url);
+      };
+      try {
+        try {
+          return { data: await once() };
+        } catch (err) {
+          if (!retryable(err)) throw err;
+          await new Promise((r) => setTimeout(r, 200 + Math.random() * 300));
+          return { data: await once() };
+        }
+      } catch (err) {
+        if (!isOutage(err)) return { answer: err };
+        throw err;
+      }
+    });
+    if ("answer" in out) throw out.answer;
+    status = 200;
+    return out.data;
+  } catch (err) {
+    status = err instanceof UpstreamError ? err.status : err instanceof BreakerOpenError ? 0 : -1;
+    throw err;
+  } finally {
+    // No query text or job ids: only what's needed to see the dependency's health.
+    console.log(JSON.stringify({ event: "talent_api", op, ok: status === 200, status, attempts, duration_ms: Date.now() - started, breaker: talentBreaker.snapshot().state }));
+  }
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -166,7 +237,7 @@ export function searchNetwork(query: SearchQuery, deps: Pick<NetworkDeps, "getJs
     const data = (await deps.getJson(url)) as { jobs?: ApiJob[]; total?: number; has_more?: boolean };
     const roles = (data.jobs ?? []).filter((j) => !j.stealth).map((j) => toNetRole(j));
     return { total: data.total ?? roles.length, page, hasMore: Boolean(data.has_more) && page < MAX_PAGE, roles };
-  });
+  }).then((c) => (c.staleMs === undefined ? c.value : { ...c.value, staleMinutes: Math.max(1, Math.round(c.staleMs / 60_000)) }));
 }
 
 export function getNetworkJob(id: string, deps: Pick<NetworkDeps, "getJson"> = defaultNetworkDeps): Promise<ApiJob | null> {
@@ -175,7 +246,9 @@ export function getNetworkJob(id: string, deps: Pick<NetworkDeps, "getJson"> = d
     const data = (await deps.getJson(`${API}/jobs/${id}?source=${SOURCE}`)) as { job?: ApiJob };
     if (!data.job?.id) throw new Error("No job in the response");
     return data.job;
-  }).catch(() => null);
+  })
+    .then((c) => c.value)
+    .catch(() => null);
 }
 
 export type JobBriefResult =

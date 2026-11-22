@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       payPosted: r.pay.kind === "posted",
       buildTitle: board.briefs[r.id]?.build.title ?? null,
     }));
-    return NextResponse.json({ total: found.total, page: found.page, hasMore: found.hasMore, roles });
+    return NextResponse.json({ total: found.total, page: found.page, hasMore: found.hasMore, roles, staleMinutes: found.staleMinutes ?? null });
   } catch {
     return NextResponse.json({ error: "The talent network didn't answer. Try again in a minute." }, { status: 502 });
   }
