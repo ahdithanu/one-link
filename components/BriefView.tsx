@@ -11,6 +11,7 @@ const k = (n: number) => `$${Math.round(n / 1000)}k`;
 
 function PayLine({ pay }: { pay: Pay }) {
   if (pay.kind === "posted") return <dd>{k(pay.min)} to {k(pay.max)}, as posted</dd>;
+  if (pay.kind === "unposted") return <dd>Not posted</dd>;
   return (
     <dd>
       Not posted. Across {pay.function} roles on the board with posted pay, the middle half is {k(pay.p25)} to {k(pay.p75)}. That is
@@ -19,7 +20,7 @@ function PayLine({ pay }: { pay: Pay }) {
   );
 }
 
-function RoleCard({ role }: { role: Role }) {
+export function RoleCard({ role }: { role: Role }) {
   return (
     <div className="card">
       <h3>Before you spend a weekend</h3>

@@ -42,10 +42,10 @@ describe("lifecycle", () => {
 });
 
 describe("tool discovery", () => {
-  it("lists three tools with object input schemas", async () => {
+  it("lists five tools with object input schemas", async () => {
     const { json } = await rpc("tools/list");
     const tools = json.result.tools;
-    assert.deepEqual(tools.map((t: { name: string }) => t.name).sort(), ["brief_from_job_post", "get_build_brief", "list_briefs"]);
+    assert.deepEqual(tools.map((t: { name: string }) => t.name).sort(), ["brief_for_job", "brief_from_job_post", "get_build_brief", "list_briefs", "search_roles"]);
     for (const t of tools) {
       assert.match(t.name, /^[a-z_]{1,64}$/);
       assert.ok(t.description.length > 20);
