@@ -15,11 +15,38 @@ Each brief puts the role's age and pay first, so nobody spends a weekend on a li
 
 > An independent concept. Not affiliated with or endorsed by a16z or speedrun.
 
+## Status (2026-11-22)
+
+**Implemented**
+- Ready-made briefs for speedrun roles: 207 of the 208 listed today.
+- Live search over every talent network role (22,676 today), and briefs written on first request.
+- Five MCP tools with input and output schemas, plus SSE progress notifications for the two slow tools.
+- Limits: per-caller and global rate limits, a daily brief budget, and a distributed per-job lock, all shared through Redis when it's configured.
+- A circuit breaker and stale-cache fallback for the talent network API.
+- Structured logs, `/api/health`, a production monitor, a gated deploy workflow, a retention policy with a dry-run cleanup, and a brief-quality eval harness.
+
+**Verified** (evidence in this README, `eval/results/` and CI)
+- 247 unit and protocol tests in CI on every PR.
+- The cross-process Redis tests: 8 instances admit exactly 5 briefs for one caller, 80 callers across 4 instances admit exactly 60, a budget of 3 admits exactly 3, and 6 instances asking for one brief make one model call.
+- The official conformance suite and the official SDK client.
+- Claude Code: connected, and a real `search_roles` call against production.
+- The tool eval: 2,426 of 2,426 checks over the bundled board.
+
+**Observed in production**
+- The smoke test passes, also run from GitHub every 15 minutes (the schedule's first automatic run is still pending; see Known limitations).
+- `list_briefs` median went from 282 ms to 95 ms after the board cache.
+- One real network-role brief was written in about 10 s, saved, and served back over MCP.
+- No production data has been deleted. The dry-run cleanup found nothing to remove.
+
+**Not yet in production:** everything merged after v0.5.0 (distributed lock, Redis-native limits, health endpoint, circuit breaker, progress notifications, UX and security fixes) needs a deploy. Global limits also need Upstash connected (see [docs/runbook.md](docs/runbook.md)). **Not yet measured:** brief quality. The eval is built but needs a real API key to run.
+
+This is a public demo with production-minded engineering, not a system proven under sustained production traffic.
+
 ## What's in it
 
 | Page | What it does |
 | --- | --- |
-| `/` | Paste any job link or description and get a brief, pick a speedrun role with a brief ready, or search all ~23k roles on the talent network |
+| `/` | Paste any job link or description and get a brief, pick a speedrun role with a brief ready, or search every role on the talent network (22,676 on 2026-11-22) |
 | `/r/<id>` | The ready-made brief for one speedrun portfolio role, quoting its job post word for word |
 | `/j/<id>` | Any talent network role: its age, pay and location first, then a brief written the first time someone asks for one and saved for everyone after |
 | `/b/<id>` | A shareable brief made from a pasted job |
@@ -114,7 +141,7 @@ Every tool declares an `outputSchema` (JSON Schema 2020-12) generated from the z
 
 There are three layers, kept apart because they answer different questions.
 
-1. **Tests** (`npm test`, 199 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
+1. **Tests** (`npm test`, 247 tests). Protocol handling, tool contracts, `makeBrief` and network-brief failure mapping with an injected model, fetcher and talent network, SSRF rules, rate limits, size caps, logging hygiene, and Host checks. No network or model.
 2. **Deterministic tool eval** (`npm run eval:tools`). Every open role on the bundled board is run through the real tool handlers. It checks:
    - each id form resolves
    - output schema
@@ -140,7 +167,10 @@ There are three layers, kept apart because they answer different questions.
 
 | What | Result | Where measured |
 | --- | --- | --- |
-| Unit, protocol and security tests | 199 / 199 pass | Local, Node 26 |
+| Unit, protocol and security tests | 247 / 247 pass | Local (Node 26) and CI (Node 22) |
+| Cross-process limit and lock tests | 4 / 4 pass against real Redis | Local Docker and CI service containers |
+| MCP conformance (official suite) | Every applicable scenario passes (8 pass; 24 test features One Link doesn't offer) | Local and CI |
+| Official MCP SDK client | 10 / 10 checks, outputs validated against `outputSchema`, progress received | Local |
 | Deterministic tool eval | 2,426 / 2,426 checks pass over 195 open roles (21 check types) | Local, bundled board as of 2026-10-31 |
 | HTTP smoke test | 13 / 13 | Local `next start` |
 | Official MCP conformance suite | Every scenario that applies to a tools-only server passes (7). The other 24 test features this server doesn't offer. [Details](eval/results/conformance.md) | Local |
@@ -294,8 +324,21 @@ GitHub Actions (`.github/workflows/ci.yml`) runs type check, lint, tests, the to
 - Pay for non-speedrun roles shows only what's posted. The speedrun pay bands aren't applied to other companies.
 - Two requests for the same new brief share one model call across instances only while Redis is reachable (a `SET NX` lock per job, 90 s expiry, released only by its owner). Without Redis, requests on the same instance still share one call; requests on different instances can both write it.
 - Finished work is saved in the person's browser. Nothing reaches a founder or speedrun.
+- The production monitor's 15-minute schedule hadn't fired on its own as of 2026-11-22 20:10 UTC, about two hours after it reached `main`. Only a manual run has executed, and it passed. GitHub documents delays for new schedules; check Actions → Production monitor for `schedule` runs before relying on it.
+- Brief quality is unmeasured: the eval harness is built but hasn't run with a real key.
+- Claude Desktop, Cursor and ChatGPT haven't been tested (manual steps in [eval/results/conformance.md](eval/results/conformance.md)).
+- No load testing: behavior under sustained concurrent traffic is unmeasured beyond the cross-process tests.
 - The founder queue uses made-up sample entries.
 - No one at speedrun has seen or approved this.
+
+## Future work
+
+1. Run the quality eval with 3 runs per configuration, and calibrate the judge against a small human-labeled set before changing the prompt.
+2. Connect Upstash, set `EXPECT_GLOBAL_LIMITS=1`, and confirm the monitor's schedule runs.
+3. Route failed monitor runs to a phone (GitHub mobile app), then error-rate and p95 alerts through a log drain.
+4. Agree acceptable use and volume with the speedrun talent team before driving real traffic (see [docs/talent-api.md](docs/talent-api.md)).
+5. A load test against a preview deployment, to find the real concurrency ceiling.
+6. Roll usage events up into counts once they grow (see the runbook's retention section).
 
 ## Stack
 
