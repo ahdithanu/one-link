@@ -7,7 +7,7 @@ import { outputSchema } from "./mcp-output";
 import { defaultNetworkDeps, lookupJobBrief, MAX_PAGE, searchNetwork, writeJobBrief, type NetworkDeps } from "./network";
 import { recordEvent } from "./store";
 
-export const SERVER = { name: "one-link", title: "One Link", version: "0.5.0" };
+export const SERVER = { name: "one-link", title: "One Link", version: "0.6.0" };
 
 export const INSTRUCTIONS = `One Link turns a job into a weekend proof-of-work brief: the one thing to build that makes the hiring manager reply, a three-step plan, and the first line of the note to send with it.
 

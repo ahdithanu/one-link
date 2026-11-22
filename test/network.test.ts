@@ -357,3 +357,25 @@ describe("one brief write per job at a time", () => {
     await writing;
   });
 });
+
+describe("finished writes on a frozen instance", () => {
+  it("right after a successful write, lookup returns the brief, not 'being written'", async () => {
+    const j = job();
+    const deps = offlineNetwork({ hasKey: () => true, generate: async () => brief, getJson: async () => ({ job: j }) });
+    await writeJobBrief(j, deps);
+    const r = await lookupJobBrief(j.id, bundled, deps);
+    assert.equal(r.kind, "saved");
+  });
+
+  it("a finished write is forgotten after a minute by the clock, with no timer involved", async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const j = job();
+    let calls = 0;
+    const deps = offlineNetwork({ hasKey: () => true, generate: async () => (calls++, brief), getJson: async () => ({ job: j }) });
+    await writeJobBrief(j, deps);
+    t.mock.timers.tick(61_000);
+    assert.equal((await lookupJobBrief(j.id, bundled, deps)).kind, "new", "nothing saved in this fake storage, so after the window it's new again");
+    await writeJobBrief(j, deps);
+    assert.equal(calls, 2);
+  });
+});

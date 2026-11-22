@@ -261,8 +261,22 @@ const fail = (error: string, status: number, category: ErrorCategory, extra: { r
 // first is being written joins it instead of paying for another model call. A finished brief stays
 // here for a minute, which also covers the moment before the saved copy is readable from Blob.
 // Across instances this is not a lock: two instances can still both write (see the README).
-const inflight = new Map<string, Promise<JobBriefResult>>();
+// Freshness is checked against the clock at lookup time, never with a timer: Vercel freezes an
+// instance between requests, so a cleanup timer may not fire for a long time.
+type Flight = { promise: Promise<JobBriefResult>; done?: { at: number; result: JobBriefResult } };
+const inflight = new Map<string, Flight>();
 const RECENT_MS = 60_000;
+const MAX_FLIGHTS = 1000;
+
+function flight(jobId: string, now = Date.now()): Flight | null {
+  const f = inflight.get(jobId);
+  if (!f) return null;
+  if (f.done && now - f.done.at > RECENT_MS) {
+    inflight.delete(jobId);
+    return null;
+  }
+  return f;
+}
 
 // Free paths first: the speedrun board, a brief being written right now, a saved brief. Only "new"
 // costs a model call, so callers apply the per-caller rate limit only to that.
@@ -272,26 +286,31 @@ export async function lookupJobBrief(id: string, board: Board, deps: NetworkDeps
   if (fromBoard && board.briefs[fromBoard.id]) return { kind: "board" as const, role: fromBoard, brief: board.briefs[fromBoard.id] };
   const job = await getNetworkJob(id, deps);
   if (!job) return { kind: "missing" as const };
-  if (inflight.has(job.id)) return { kind: "pending" as const, job };
+  const f = flight(job.id);
+  // A write that already finished is as good as a saved brief, even before Blob shows it.
+  if (f?.done && !("error" in f.done.result)) return { kind: "saved" as const, role: toNetRole(job), brief: f.done.result.brief };
+  if (f && !f.done) return { kind: "pending" as const, job };
   const saved = await deps.loadSaved(job.id).catch(() => null);
   if (saved) return { kind: "saved" as const, role: toNetRole(job), brief: saved.brief };
   return { kind: "new" as const, job };
 }
 
 export function writeJobBrief(job: ApiJob, deps: NetworkDeps = defaultNetworkDeps): Promise<JobBriefResult> {
-  const running = inflight.get(job.id);
+  const running = flight(job.id);
   // Joiners get the same brief, marked cached and without usage, so tokens are logged once.
-  if (running) return running.then((r) => ("error" in r ? r : { role: r.role, brief: r.brief, cached: true }));
-  const p = coordinatedWrite(job, deps);
-  inflight.set(job.id, p);
-  p.then(
-    (r) => {
-      if ("error" in r) inflight.delete(job.id);
-      else setTimeout(() => inflight.delete(job.id), RECENT_MS).unref?.();
+  if (running) return running.promise.then((r) => ("error" in r ? r : { role: r.role, brief: r.brief, cached: true }));
+  if (inflight.size >= MAX_FLIGHTS) inflight.delete(inflight.keys().next().value!);
+  const entry: Flight = { promise: coordinatedWrite(job, deps) };
+  inflight.set(job.id, entry);
+  entry.promise.then(
+    (result) => {
+      // A failure is forgotten at once so it can be retried; a success is remembered for a minute.
+      if ("error" in result) inflight.delete(job.id);
+      else entry.done = { at: Date.now(), result };
     },
     () => inflight.delete(job.id),
   );
-  return p;
+  return entry.promise;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
