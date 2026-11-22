@@ -76,7 +76,11 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Wait for the Redis REST emulator
-        run: for i in $(seq 1 30); do curl -sf -X POST -H "Authorization: Bearer ci-test-token" -H "content-type: application/json" -d '["PING"]' http://localhost:8079/ && break; sleep 1; done
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf -X POST -H "Authorization: Bearer ci-test-token" -H "content-type: application/json" -d '["PING"]' http://localhost:8079/ && break
+            sleep 1
+          done
       - name: Cross-process limit and lock tests
         run: npm run test:redis
 
