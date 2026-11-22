@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      ONE_LINK_LOG: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit, protocol and security tests
+        run: npm test
+      - name: Tool evaluation (deterministic, bundled data)
+        run: npm run eval:tools
+      - name: Dependency audit (runtime dependencies)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Production build
+        run: npm run build
+      - name: HTTP protocol smoke test against the built app
+        run: |
+          npx next start -p 3210 > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:3210/ && break; sleep 1; done
+          npm run smoke -- http://localhost:3210/mcp
+      - name: Server log on failure
+        if: failure()
+        run: cat server.log || true
+
+
+# The model evaluation (npm run eval:model) calls the Anthropic API and costs money, so it is run by
+# hand rather than in CI. See docs/fde-case-study.md.

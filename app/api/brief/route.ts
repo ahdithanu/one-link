@@ -14,5 +14,5 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const result = await makeBrief(body?.input);
   if ("error" in result) return fail(result.error, result.status);
-  return NextResponse.json(result);
+  return NextResponse.json({ brief: result.brief, id: result.id });
 }
