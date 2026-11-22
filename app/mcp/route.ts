@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clientIp, eventLimited, limited } from "@/lib/limit";
+import { clientIp, eventLimited, limited, upstreamLimited } from "@/lib/limit";
 import { CORS, handleMcp, progressToken, readCapped, streamMcp } from "@/lib/mcp-http";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const maxDuration = 60;
 export async function POST(req: NextRequest) {
   const ip = clientIp(req.headers);
   const raw = await readCapped(req.body);
-  const ctx = { origin: req.nextUrl.origin, limited: () => limited(ip), eventLimited: () => eventLimited(ip) };
+  const ctx = { origin: req.nextUrl.origin, limited: () => limited(ip), eventLimited: () => eventLimited(ip), upstreamLimited: () => upstreamLimited(ip) };
   // A slow tool call that asked for progress gets an SSE stream; everything else is plain JSON.
   const token = progressToken(raw, req.headers);
   if (token !== null)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBoard } from "@/lib/data";
-import { clientIp, limited, PER_IP } from "@/lib/limit";
+import { clientIp, limited, PER_IP, upstreamLimited } from "@/lib/limit";
+import { readCapped } from "@/lib/mcp-http";
 import { logWeb, type Usage } from "@/lib/log";
 import { lookupJobBrief, writeJobBrief } from "@/lib/network";
 
@@ -17,9 +18,18 @@ export async function POST(req: NextRequest) {
     logWeb("/api/job-brief", started, 200, undefined, usage);
     return NextResponse.json({ brief });
   };
-  if (Number(req.headers.get("content-length") ?? 0) > 4 * 1024) return fail("Bad request.", 413, "payload_too_large");
-  const body = await req.json().catch(() => null);
+  // Read at most 4 KB whatever Content-Length says, so a chunked body can't be buffered whole.
+  const raw = await readCapped(req.body, 4 * 1024);
+  if (raw.length > 4 * 1024) return fail("Bad request.", 413, "payload_too_large");
+  const body = (() => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
   const id = typeof body?.id === "string" ? body.id.trim().toLowerCase() : "";
+  if (await upstreamLimited(clientIp(req.headers))) return fail("Too many requests. Try again in a few minutes.", 429, "rate_limited");
   const found = await lookupJobBrief(id, await getBoard());
   if (found.kind === "invalid" || found.kind === "missing") return fail("That role isn't on the talent network.", 404, "not_found");
   if (found.kind === "board" || found.kind === "saved") return ok(found.brief);

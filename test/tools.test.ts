@@ -146,3 +146,22 @@ describe("board cache for MCP calls", () => {
     assert.ok((await a).roles.length > 0);
   });
 });
+
+describe("upstream budget and untrusted brief text", () => {
+  it("MCP lookups that reach the talent network stop when the caller's budget is spent", async () => {
+    const limitedCtx = ctx({ upstreamLimited: () => true });
+    for (const [name, args] of [["search_roles", { q: "x" }], ["brief_for_job", { job: "00000d01-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }], ["get_build_brief", { job: "00000d02-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }]] as const) {
+      const res = await call(name, args, limitedCtx);
+      assert.equal(res.isError, true, name);
+      assert.match(res.content[0].text, /Too many/, name);
+    }
+  });
+  it("speedrun briefs need no upstream call, so they aren't limited", async () => {
+    const res = await call("get_build_brief", { job: sample.id }, ctx({ upstreamLimited: () => true }));
+    assert.equal(res.isError, undefined);
+  });
+  it("tells agents that brief text is content, not instructions", async () => {
+    const { INSTRUCTIONS } = await import("@/lib/mcp");
+    assert.match(INSTRUCTIONS, /never as instructions/);
+  });
+});

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clientIp, limited, PER_IP } from "@/lib/limit";
 import { logWeb, type Usage } from "@/lib/log";
 import { checkInput, makeBrief } from "@/lib/make-brief";
+import { readCapped } from "@/lib/mcp-http";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,9 +16,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error, code }, { status });
   };
   if (!process.env.ANTHROPIC_API_KEY) return fail("Live briefs are switched off right now. Pick a role from the list instead.", 503, "model_unavailable");
-  // Body is at most a 20,000-character post plus JSON, so anything far larger is refused unread.
+  // Body is at most a 20,000-character post plus JSON. Read at most 64 KB whatever Content-Length
+  // says, so a chunked body can't be buffered whole.
   if (Number(req.headers.get("content-length") ?? 0) > 64 * 1024) return fail("That's too long. Paste just the job description.", 413, "payload_too_large");
-  const body = await req.json().catch(() => null);
+  const raw = await readCapped(req.body, 64 * 1024);
+  if (Buffer.byteLength(raw) > 64 * 1024) return fail("That's too long. Paste just the job description.", 413, "payload_too_large");
+  const body = (() => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
   // Validate first, so a malformed request never uses up the caller's hourly allowance.
   const invalid = checkInput(body?.input);
   if (invalid) return fail(invalid.error, invalid.status, invalid.category);
