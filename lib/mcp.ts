@@ -162,7 +162,14 @@ function argError(err: z.ZodError) {
   return text(`Invalid arguments. ${issues}`, true);
 }
 
-export type ToolContext = { origin: string; limited: () => boolean | Promise<boolean>; eventLimited: () => boolean | Promise<boolean>; network?: NetworkDeps };
+export type ToolContext = {
+  origin: string;
+  limited: () => boolean | Promise<boolean>;
+  eventLimited: () => boolean | Promise<boolean>;
+  network?: NetworkDeps;
+  // Set when the client asked for progress notifications (see lib/mcp-http.ts). Names the current phase.
+  progress?: (phase: string) => void;
+};
 export type ToolOutcome = { result: Content; category?: ErrorCategory; usage?: Usage };
 
 const done = (result: Content, category?: ErrorCategory, usage?: Usage): ToolOutcome => ({ result, ...(category && { category }), ...(usage && { usage }) });
@@ -264,6 +271,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     const short = parseJobRef(parsed.data.job);
     if (!short) return done(text("Pass a job UUID, its first 8 hex characters, or a speedrun-talent-network.com job url.", true), "invalid_arguments");
     const deps = ctx.network ?? defaultNetworkDeps;
+    ctx.progress?.("Looking up the role");
     const net = await lookupJobBrief(short, await getBoardCached(), deps);
     if (net.kind === "invalid" || net.kind === "missing")
       return done(text("No job with that id on the talent network. For a job elsewhere, call brief_from_job_post with its description.", true), "not_found");
@@ -279,6 +287,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     // Only a new brief costs a model call, so only it counts toward the caller's limit.
     if (net.kind === "new" && !deps.hasKey()) return done(text("Live briefs are switched off right now.", true), "model_unavailable");
     if (net.kind === "new" && (await ctx.limited())) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
+    ctx.progress?.(net.kind === "pending" ? "Waiting for a brief another request is writing" : "Writing the brief, usually 10 to 30 seconds");
     const result = await writeJobBrief(net.job, deps);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = `${ctx.origin}/j/${result.role.id}`;
@@ -298,6 +307,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     const parsed = ARGS.brief_from_job_post.safeParse(rawArgs);
     if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
     if (await ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
+    ctx.progress?.(/^https?:\/\/\S+$/i.test(parsed.data.job_post.trim()) ? "Fetching the job page, then writing the brief" : "Writing the brief, usually 10 to 30 seconds");
     const result = await makeBrief(parsed.data.job_post);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = result.id ? `${ctx.origin}/b/${result.id}` : null;

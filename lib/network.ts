@@ -339,8 +339,13 @@ async function generateJobBrief(job: ApiJob, deps: NetworkDeps): Promise<JobBrie
   if (job.status && job.status !== "open") return fail("This role is no longer open, so there's no brief to write.", 410, "not_found", { role });
   const desc = job.description_text ?? "";
   if (desc.length < MIN_POST) return fail("This listing has too little description to brief from.", 422, "not_a_job_post", { role });
-  // If the budget can't be checked, refuse: this path spends money.
-  const release = await deps.reserveBrief().catch(() => null);
+  // If the budget can't be checked, refuse: this path spends money. Say which it is.
+  let release: Awaited<ReturnType<NetworkDeps["reserveBrief"]>>;
+  try {
+    release = await deps.reserveBrief();
+  } catch {
+    return fail("New briefs are paused for a moment because today's budget can't be checked. Try again in a few minutes.", 503, "budget_unavailable", { role });
+  }
   if (!release) return fail("Today's budget for new briefs is used up. Try again tomorrow.", 503, "budget_exhausted", { role });
 
   let usage: Usage | undefined;
