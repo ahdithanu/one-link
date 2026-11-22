@@ -1,7 +1,10 @@
 // Black-box protocol checks over real HTTP against a running server.
-// Usage: npx tsx eval/smoke-http.mts [url]   (default http://localhost:3210/mcp)
-// Read-only: it never calls brief_from_job_post or get_build_brief, so it is safe against production.
-const URL_ = process.argv[2] ?? "http://localhost:3210/mcp";
+// Usage: npx tsx eval/smoke-http.mts [url] [--live]   (default http://localhost:3210/mcp)
+// --live adds checks that need the real talent network API (search_roles, the home page). The
+// scheduled production monitor uses it; CI doesn't, so CI never depends on an outside API.
+// Read-only: it never writes a brief or a usage event, so it is safe to run against production.
+const URL_ = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "http://localhost:3210/mcp";
+const LIVE = process.argv.includes("--live");
 const H = { "content-type": "application/json", accept: "application/json, text/event-stream" };
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => {
@@ -50,6 +53,16 @@ check("GET (no SSE stream) -> 405", r.status === 405, String(r.status));
 
 r = await fetch(URL_, { method: "OPTIONS" });
 check("OPTIONS preflight -> 204", r.status === 204, String(r.status));
+
+if (LIVE) {
+  let t0 = Date.now();
+  r = await post(JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "search_roles", arguments: { q: "engineer" } } }));
+  j = await r.json();
+  check(`search_roles reaches the talent network (${Date.now() - t0} ms)`, !j.result?.isError && j.result?.structuredContent?.roles?.length > 0, JSON.stringify(j).slice(0, 200));
+  t0 = Date.now();
+  r = await fetch(new URL("/", URL_));
+  check(`home page 200 (${Date.now() - t0} ms)`, r.status === 200, String(r.status));
+}
 
 console.log(failed ? `\n${failed} check(s) failed against ${URL_}` : `\nall checks passed against ${URL_}`);
 process.exit(failed ? 1 : 0);

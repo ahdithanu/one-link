@@ -139,20 +139,44 @@ export type JobBriefResult =
 
 const fail = (error: string, status: number, category: ErrorCategory, extra: { role?: NetRole; usage?: Usage } = {}) => ({ error, status, category, ...extra });
 
-// Returns a saved brief for free. Otherwise checks the daily cap and writes one. The caller applies
-// the per-caller rate limit, and only needs to when `needsModel` says a model call will happen.
+// One generation per job at a time, per instance. A second request for the same job while the
+// first is being written joins it instead of paying for another model call. A finished brief stays
+// here for a minute, which also covers the moment before the saved copy is readable from Blob.
+// Across instances this is not a lock: two instances can still both write (see the README).
+const inflight = new Map<string, Promise<JobBriefResult>>();
+const RECENT_MS = 60_000;
+
+// Free paths first: the speedrun board, a brief being written right now, a saved brief. Only "new"
+// costs a model call, so callers apply the per-caller rate limit only to that.
 export async function lookupJobBrief(id: string, board: Board, deps: NetworkDeps = defaultNetworkDeps) {
   if (!isJobId(id)) return { kind: "invalid" as const };
   const fromBoard = board.roles.find((r) => (id.length === 8 ? r.short === id : r.id === id));
   if (fromBoard && board.briefs[fromBoard.id]) return { kind: "board" as const, role: fromBoard, brief: board.briefs[fromBoard.id] };
   const job = await getNetworkJob(id, deps);
   if (!job) return { kind: "missing" as const };
+  if (inflight.has(job.id)) return { kind: "pending" as const, job };
   const saved = await deps.loadSaved(job.id).catch(() => null);
   if (saved) return { kind: "saved" as const, role: toNetRole(job), brief: saved.brief };
   return { kind: "new" as const, job };
 }
 
-export async function writeJobBrief(job: ApiJob, deps: NetworkDeps = defaultNetworkDeps): Promise<JobBriefResult> {
+export function writeJobBrief(job: ApiJob, deps: NetworkDeps = defaultNetworkDeps): Promise<JobBriefResult> {
+  const running = inflight.get(job.id);
+  // Joiners get the same brief, marked cached and without usage, so tokens are logged once.
+  if (running) return running.then((r) => ("error" in r ? r : { role: r.role, brief: r.brief, cached: true }));
+  const p = generateJobBrief(job, deps);
+  inflight.set(job.id, p);
+  p.then(
+    (r) => {
+      if ("error" in r) inflight.delete(job.id);
+      else setTimeout(() => inflight.delete(job.id), RECENT_MS).unref?.();
+    },
+    () => inflight.delete(job.id),
+  );
+  return p;
+}
+
+async function generateJobBrief(job: ApiJob, deps: NetworkDeps): Promise<JobBriefResult> {
   const role = toNetRole(job);
   if (!deps.hasKey()) return fail("Live briefs are switched off right now.", 503, "model_unavailable", { role });
   if (job.status && job.status !== "open") return fail("This role is no longer open, so there's no brief to write.", 410, "not_found", { role });

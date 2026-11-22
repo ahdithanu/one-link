@@ -1,0 +1,39 @@
+name: Production monitor
+
+# Runs the read-only smoke test against production every 15 minutes. A failed run emails the
+# repository owner (GitHub's default for failed scheduled workflows). It retries once after 30 s
+# so a single slow request doesn't page anyone.
+#
+# GitHub pauses scheduled workflows in a public repository after 60 days without commits. Re-enable
+# it from the Actions tab if that happens.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-monitor
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TARGET: https://one-link-eta.vercel.app/mcp
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: eval
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No npm install: the script only uses fetch, and Node runs it with type stripping.
+      - name: Smoke test production
+        run: |
+          node --experimental-strip-types eval/smoke-http.mts "$TARGET" --live \
+            || (echo "Retrying in 30 s" && sleep 30 && node --experimental-strip-types eval/smoke-http.mts "$TARGET" --live)

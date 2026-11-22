@@ -273,3 +273,81 @@ describe("get_build_brief on network roles", () => {
     assert.match(res.content[0].text, /brief_for_job/);
   });
 });
+
+describe("one brief write per job at a time", () => {
+  // A generate() that waits until the test releases it, so two requests overlap.
+  function gated() {
+    let release!: (b: Brief | null) => void;
+    let calls = 0;
+    const generate = () => {
+      calls++;
+      return new Promise<Brief | null>((r) => (release = r));
+    };
+    return { generate, release: (b: Brief | null) => release(b), calls: () => calls };
+  }
+
+  it("a second request while the first is writing joins it instead of calling the model again", async () => {
+    const j = job();
+    const g = gated();
+    let counted = 0;
+    const deps = offlineNetwork({ hasKey: () => true, generate: g.generate, countBrief: async () => void counted++ });
+    const first = writeJobBrief(j, deps);
+    const second = writeJobBrief(j, deps);
+    await new Promise((r) => setImmediate(r));
+    g.release(brief);
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(g.calls(), 1);
+    assert.equal(counted, 1);
+    assert.ok(!("error" in a) && !("error" in b));
+    assert.equal(a.cached, false);
+    assert.equal(b.cached, true);
+    assert.equal(b.usage, undefined);
+  });
+
+  it("lookup reports a brief being written as pending", async () => {
+    const j = job();
+    const g = gated();
+    const deps = offlineNetwork({ hasKey: () => true, generate: g.generate, getJson: async () => ({ job: j }) });
+    const writing = writeJobBrief(j, deps);
+    assert.equal((await lookupJobBrief(j.id, bundled, deps)).kind, "pending");
+    g.release(brief);
+    await writing;
+  });
+
+  it("a failed write can be retried right away", async () => {
+    const j = job();
+    let calls = 0;
+    const deps = offlineNetwork({ hasKey: () => true, generate: async () => (calls++ === 0 ? null : brief) });
+    const first = await writeJobBrief(j, deps);
+    assert.ok("error" in first);
+    const second = await writeJobBrief(j, deps);
+    assert.ok(!("error" in second));
+    assert.equal(calls, 2);
+  });
+
+  it("brief_for_job joins a write in progress without using the caller's limit", async () => {
+    const j = job();
+    const g = gated();
+    const network = offlineNetwork({ hasKey: () => true, generate: g.generate, getJson: async () => ({ job: j }) });
+    const writing = writeJobBrief(j, network);
+    const res = call("brief_for_job", { job: j.id }, ctx({ network, limited: () => true }));
+    await new Promise((r) => setImmediate(r));
+    g.release(brief);
+    const out = await res;
+    await writing;
+    assert.equal(out.isError, undefined);
+    assert.equal(g.calls(), 1);
+  });
+
+  it("get_build_brief says a brief is being written", async () => {
+    const j = job();
+    const g = gated();
+    const network = offlineNetwork({ hasKey: () => true, generate: g.generate, getJson: async () => ({ job: j }) });
+    const writing = writeJobBrief(j, network);
+    const res = await call("get_build_brief", { job: j.id }, ctx({ network }));
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /being written right now/);
+    g.release(brief);
+    await writing;
+  });
+});

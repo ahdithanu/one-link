@@ -63,4 +63,4 @@ Not using an MCP SDK is not treated as a defect. The server is about 200 lines w
 
 - **Origin is not restricted.** The spec says to validate Origin to stop DNS rebinding against *local* servers. This server is public, needs no credentials, and allows CORS from any site, so a rebinding attacker gets nothing they couldn't get by calling it directly. The Host allowlist gives the protection that matters, and the conformance check passes.
 - **No JSON-RPC batching under 2025-03-26.** That version required servers to accept batches, and later versions removed them. Batches get a clear -32600. No current client sends them.
-- **No `outputSchema`.** Tools return `structuredContent` without declaring a schema, which the spec allows. The text content is readable markdown rather than serialized JSON. The spec suggests (SHOULD) the latter for older clients.
+- **Text content is markdown, not serialized JSON.** Every tool declares an `outputSchema` and returns matching `structuredContent` (checked by tests). For older clients, the spec suggests (SHOULD) also putting the JSON in a text block. The text block is readable markdown instead, because agents show it to people.

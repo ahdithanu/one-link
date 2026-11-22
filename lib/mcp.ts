@@ -3,10 +3,11 @@ import type { GeneratedBrief } from "./brief";
 import { findRole, getBoardCached, getListings, type Brief, type Role } from "./data";
 import type { ErrorCategory, Usage } from "./log";
 import { makeBrief, MAX_POST } from "./make-brief";
+import { outputSchema } from "./mcp-output";
 import { defaultNetworkDeps, lookupJobBrief, MAX_PAGE, searchNetwork, writeJobBrief, type NetworkDeps } from "./network";
 import { recordEvent } from "./store";
 
-export const SERVER = { name: "one-link", title: "One Link", version: "0.4.0" };
+export const SERVER = { name: "one-link", title: "One Link", version: "0.5.0" };
 
 export const INSTRUCTIONS = `One Link turns a job into a weekend proof-of-work brief: the one thing to build that makes the hiring manager reply, a three-step plan, and the first line of the note to send with it.
 
@@ -27,6 +28,7 @@ export const TOOLS = [
       properties: { job: { type: "string", minLength: 8, maxLength: 300, description: "Job UUID, 8-hex id prefix, or job url." } },
       required: ["job"],
     },
+    outputSchema: outputSchema("get_build_brief"),
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
@@ -45,6 +47,7 @@ export const TOOLS = [
         limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
       },
     },
+    outputSchema: outputSchema("list_briefs"),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
@@ -60,6 +63,7 @@ export const TOOLS = [
         page: { type: "integer", minimum: 0, maximum: MAX_PAGE, default: 0 },
       },
     },
+    outputSchema: outputSchema("search_roles"),
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
@@ -72,6 +76,7 @@ export const TOOLS = [
       properties: { job: { type: "string", minLength: 8, maxLength: 300, description: "Job UUID, 8-hex id prefix, or job url." } },
       required: ["job"],
     },
+    outputSchema: outputSchema("brief_for_job"),
     annotations: { readOnlyHint: false, openWorldHint: true },
   },
   {
@@ -84,6 +89,7 @@ export const TOOLS = [
       properties: { job_post: { type: "string", minLength: 12, maxLength: 20000, description: "The full job description, or a public url to it." } },
       required: ["job_post"],
     },
+    outputSchema: outputSchema("brief_from_job_post"),
     annotations: { readOnlyHint: false, openWorldHint: true },
   },
 ] as const;
@@ -181,7 +187,9 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
       const hint =
         net.kind === "new"
           ? `${net.job.title} at ${net.job.company} has no brief yet. Call brief_for_job with this job id to write one.`
-          : "No job with that id on the talent network. For a job elsewhere, call brief_from_job_post with its description.";
+          : net.kind === "pending"
+            ? `The brief for ${net.job.title} at ${net.job.company} is being written right now. Call brief_for_job with this job id to wait for it.`
+            : "No job with that id on the talent network. For a job elsewhere, call brief_from_job_post with its description.";
       return done(text(hint, true), "not_found");
     }
     const { role, brief } = found;
@@ -266,9 +274,10 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
         structuredContent: { role: { ...net.role, warnings: warnings(net.role) }, brief: net.brief, url },
       });
     }
+    // A brief being written for someone else is joined, not paid for twice or counted against this caller.
     // Only a new brief costs a model call, so only it counts toward the caller's limit.
-    if (!deps.hasKey()) return done(text("Live briefs are switched off right now.", true), "model_unavailable");
-    if (ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
+    if (net.kind === "new" && !deps.hasKey()) return done(text("Live briefs are switched off right now.", true), "model_unavailable");
+    if (net.kind === "new" && ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
     const result = await writeJobBrief(net.job, deps);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = `${ctx.origin}/j/${result.role.id}`;
