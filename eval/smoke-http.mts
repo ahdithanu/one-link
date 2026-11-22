@@ -5,7 +5,9 @@
 // Read-only: it never writes a brief or a usage event, so it is safe to run against production.
 const URL_ = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "http://localhost:3210/mcp";
 const LIVE = process.argv.includes("--live");
-const H = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+// Protected preview deployments need Vercel's automation bypass header.
+const BYPASS: Record<string, string> = process.env.VERCEL_PROTECTION_BYPASS ? { "x-vercel-protection-bypass": process.env.VERCEL_PROTECTION_BYPASS } : {};
+const H = { "content-type": "application/json", accept: "application/json, text/event-stream", ...BYPASS };
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}${ok ? "" : ` ${detail}`}`);
@@ -48,10 +50,10 @@ r = await post(JSON.stringify({ jsonrpc: "2.0", id: 7, method: "nope" }));
 j = await r.json();
 check("unknown method -> -32601", j.error?.code === -32601);
 
-r = await fetch(URL_, { method: "GET", headers: { accept: "text/event-stream" } });
+r = await fetch(URL_, { method: "GET", headers: { accept: "text/event-stream", ...BYPASS } });
 check("GET (no SSE stream) -> 405", r.status === 405, String(r.status));
 
-r = await fetch(URL_, { method: "OPTIONS" });
+r = await fetch(URL_, { method: "OPTIONS", headers: BYPASS });
 check("OPTIONS preflight -> 204", r.status === 204, String(r.status));
 
 if (LIVE) {
@@ -59,13 +61,13 @@ if (LIVE) {
   r = await post(JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "search_roles", arguments: { q: "engineer" } } }));
   j = await r.json();
   check(`search_roles reaches the talent network (${Date.now() - t0} ms)`, !j.result?.isError && j.result?.structuredContent?.roles?.length > 0, JSON.stringify(j).slice(0, 200));
-  r = await fetch(new URL("/api/health", URL_));
+  r = await fetch(new URL("/api/health", URL_), { headers: BYPASS });
   j = await r.json().catch(() => ({}));
   check(`health 200 (limits: ${j.limits?.scope ?? "?"}, redis reachable: ${j.limits?.redis?.reachable ?? "n/a"})`, r.status === 200 && j.ok === true, JSON.stringify(j).slice(0, 200));
   // Set EXPECT_GLOBAL_LIMITS=1 once Upstash is connected, so a fallback to per-instance limits fails loudly.
   if (process.env.EXPECT_GLOBAL_LIMITS === "1") check("rate limits are global", j.limits?.scope === "global", JSON.stringify(j.degraded ?? []));
   t0 = Date.now();
-  r = await fetch(new URL("/", URL_));
+  r = await fetch(new URL("/", URL_), { headers: BYPASS });
   check(`home page 200 (${Date.now() - t0} ms)`, r.status === 200, String(r.status));
 }
 

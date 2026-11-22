@@ -1,0 +1,70 @@
+name: Deploy
+
+# Deploys only when someone runs it (Actions > Deploy > Run workflow). Tests run first, the build is
+# deployed with the Vercel CLI, then the live smoke test and /api/health check the new deployment.
+# Production uses the "production" GitHub environment: add yourself as a required reviewer there
+# (Settings > Environments > production) so every production deploy waits for your approval.
+#
+# Needs repository secrets VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID (see docs/runbook.md),
+# and VERCEL_AUTOMATION_BYPASS_SECRET if preview deployments are protected. Without them the
+# workflow stops before deploying anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy
+        type: choice
+        options: [preview, production]
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.target }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      ONE_LINK_LOG: "off"
+    steps:
+      - name: Check deploy credentials are configured
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::error::VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID secrets are required. See docs/runbook.md."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tests and type check
+        run: npm run typecheck && npm test
+      - name: Build and deploy
+        id: deploy
+        run: |
+          PROD=""; [ "${{ inputs.target }}" = "production" ] && PROD="--prod"
+          npx vercel@54.20.1 pull --yes --environment=${{ inputs.target }} --token="$VERCEL_TOKEN"
+          npx vercel@54.20.1 build $PROD --token="$VERCEL_TOKEN"
+          URL=$(npx vercel@54.20.1 deploy --prebuilt $PROD --token="$VERCEL_TOKEN")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $URL"
+      - name: Verify the deployment
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          [ "${{ inputs.target }}" = "production" ] && URL="https://one-link-eta.vercel.app"
+          node --experimental-strip-types eval/smoke-http.mts "$URL/mcp" --live
+      - name: If verification failed
+        if: failure() && inputs.target == 'production'
+        run: echo "::error::Production verification failed. Roll back with 'vercel rollback' (docs/runbook.md)."

@@ -25,7 +25,7 @@ export type ErrorCategory =
 export type Usage = { model: string; input_tokens: number; output_tokens: number };
 
 export type LogLine = {
-  event: "mcp_request";
+  event: "mcp_request" | "web_request";
   request_id: string;
   method: string;
   tool?: string;
@@ -39,4 +39,18 @@ export type LogLine = {
 export function log(line: LogLine) {
   if (process.env.ONE_LINK_LOG === "off") return;
   console.log(JSON.stringify({ ts: new Date().toISOString(), ...line }));
+}
+
+// For the web brief routes: one line per request, same shape as MCP lines (method is the route).
+export function logWeb(route: string, started: number, status: number, category?: string, usage?: Usage) {
+  log({
+    event: "web_request",
+    request_id: "-",
+    method: route,
+    ok: status < 400,
+    status,
+    ...(category && { error_category: category as ErrorCategory }),
+    duration_ms: Math.round(performance.now() - started),
+    ...(usage && { usage }),
+  });
 }
