@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBoard } from "@/lib/data";
-import { clientIp, createLimiter } from "@/lib/limit";
+import { clientIp, searchLimited } from "@/lib/limit";
 import { searchNetwork } from "@/lib/network";
 
 export const runtime = "nodejs";
 
-// Search-as-you-type calls this often, so the limit is generous. Results are cached per instance.
-const searchLimited = createLimiter(600);
+// Search-as-you-type calls this often, so the limit (600 an hour per caller) is generous.
+// Results are cached per instance.
 
 export async function GET(req: NextRequest) {
-  if (searchLimited(clientIp(req.headers))) return NextResponse.json({ error: "Too many searches. Wait a minute." }, { status: 429 });
+  if (await searchLimited(clientIp(req.headers))) return NextResponse.json({ error: "Too many searches. Wait a minute." }, { status: 429 });
   const p = req.nextUrl.searchParams;
   try {
     const [found, board] = await Promise.all([

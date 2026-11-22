@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clientIp, createLimiter } from "@/lib/limit";
+import { clientIp, pageEventLimited } from "@/lib/limit";
 import { EVENTS, EventName, recordEvent } from "@/lib/store";
 
 export const runtime = "nodejs";
 
-const limited = createLimiter(60);
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   // agent_brief is recorded by the MCP server only.
   if (!EVENTS.includes(body?.name) || body.name === "agent_brief") return new NextResponse(null, { status: 400 });
-  if (!limited(clientIp(req.headers))) await recordEvent(body.name as EventName).catch(() => {});
+  if (!(await pageEventLimited(clientIp(req.headers)))) await recordEvent(body.name as EventName).catch(() => {});
   return new NextResponse(null, { status: 204 });
 }

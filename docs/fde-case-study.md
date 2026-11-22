@@ -53,7 +53,8 @@ The full list, with severities, is in [docs/audit.md](audit.md). The ones that m
 | Text that isn't a job post | Tool error (`not_a_job_post`). The model is told to return empty fields, and those are rejected. |
 | Prompt injection in a post | Treated as data. Output must match the schema, and the eval includes an injection case. |
 | Unexpected exception | Generic tool error with no internal text (tested), `internal` in logs |
-| Abuse | 5 model calls an hour per caller and 60 per instance, 60 usage events an hour per caller, 64 KB bodies |
+| Abuse | 5 model calls an hour per caller and 60 across everyone (shared in Redis), a reserved daily brief budget, 60 usage events an hour per caller, 64 KB bodies |
+| Redis down or slow | Limits fall back to per-instance windows after 1.5 s, and the daily cap to blob markers. Weaker, never off. |
 | Two people ask for the same new brief at once | The second request joins the first and gets the same brief, with no second model call (within an instance) |
 
 ## Evaluation methodology and results
@@ -91,8 +92,7 @@ Local means a laptop over loopback with the bundled board, which shows handler c
 
 ## What should improve next
 
-1. **Global rate limits** in a shared store, so limits hold across instances.
-2. **Real alerting.** A scheduled check now runs the smoke test against production every 15 minutes and emails on failure. Next is an alert on error rate and p95 latency from the logs, routed to a phone.
-3. **Run the model eval** with 3 runs per case, so variance is visible. Add a small human-labeled set to calibrate the judge.
-4. **A shared store for limits and locks.** Duplicate writes of the same brief are now joined within an instance. Across instances, that needs the same shared store as the rate limits.
-5. **Measure the outcome that matters:** how many briefs turn into a shipped link, not how many briefs are generated.
+1. **Real alerting.** A scheduled check now runs the smoke test against production every 15 minutes and emails on failure. Next is an alert on error rate and p95 latency from the logs, routed to a phone.
+2. **Run the model eval** with 3 runs per case, so variance is visible. Add a small human-labeled set to calibrate the judge.
+3. **A cross-instance lock for brief writes.** Duplicate writes are joined within an instance. Redis is now in place, so a `SET NX` lock per job id would make that hold across instances.
+4. **Measure the outcome that matters:** how many briefs turn into a shipped link, not how many briefs are generated.

@@ -44,7 +44,7 @@ Not using an MCP SDK is not treated as a defect. The server is about 200 lines w
 | 12 | Low | Spec violation | A JSON-RPC *response* from the client was rejected with 400. The spec says it gets 202. | Fixed. |
 | 13 | Low | Improvement | Invalid tool arguments were coerced or ignored. The spec recommends returning them as tool errors (`isError`) so the model can correct itself. | Fixed. zod schemas mirror each `inputSchema`, with 13 invalid-argument tests in `test/tools.test.ts`. |
 | 14 | Low | Security | The rate limiter's `Map` grew with every new IP and was never cleared. | Fixed. Bounded at 10k keys, oldest evicted first. |
-| 15 | Low | Security | No global cap: many IPs could each use 5 model calls. | Partly fixed. 60 model calls an hour per instance. Cross-instance is not fixed (see Remaining risks). |
+| 15 | Low | Security | No global cap: many IPs could each use 5 model calls. | Fixed. 60 model calls an hour across all callers, counted in Upstash Redis, with a per-instance fallback if Redis is down (see the README's known limitations). |
 | 16 | Low | Security | Invalid `brief_from_job_post` calls used up the caller's hourly allowance. | Fixed. Arguments are validated before the limit is checked. |
 | 17 | Low | Security | No app-level request size limit (only the platform's 4.5 MB). | Fixed. 64 KB cap, read incrementally, 413 plus `connection: close`. |
 | 18 | Low | Reliability | Every tool call did a Blob read with caching off (`useCache: false`). Measured production `list_briefs` median was 282 ms against 129 ms for `initialize`, which needs no data. | Fixed for MCP. 60 s in-memory board cache per instance. Pages still read fresh. After deploy, production `list_briefs` fell from a 282 ms to a 95 ms median, the same as `initialize`. |

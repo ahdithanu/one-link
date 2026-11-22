@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "node:crypto";
-import { get, list, put } from "@vercel/blob";
+import { del, get, list, put } from "@vercel/blob";
 import { generateBrief } from "./brief";
 import type { Board, Brief, Role } from "./data";
 import type { ErrorCategory, Usage } from "./log";
+import { getRedis, reserveDaily } from "./limit";
 import { MIN_POST } from "./make-brief";
 import { toRole, type Job } from "./refresh";
 
@@ -53,9 +54,9 @@ export type NetworkDeps = {
   generate: (post: string, onUsage: (u: Usage) => void) => Promise<Brief | null>;
   loadSaved: (id: string) => Promise<SavedJobBrief | null>;
   save: (saved: SavedJobBrief) => Promise<void>;
-  briefsToday: () => Promise<number>;
-  countBrief: () => Promise<void>;
-  dailyCap: () => number;
+  // Reserves one of today's new briefs before the model call. Returns a function that gives the
+  // slot back, or null when the day's budget is used up.
+  reserveBrief: () => Promise<(() => Promise<void>) | null>;
 };
 
 export type SavedJobBrief = { role: NetRole; brief: Brief; at: string };
@@ -86,25 +87,40 @@ export const defaultNetworkDeps: NetworkDeps = {
   save: async (saved) => {
     await put(`jobbriefs/${saved.role.id}.json`, JSON.stringify(saved), { ...write, contentType: "application/json", allowOverwrite: true });
   },
-  // One empty marker per generated brief, counted across every instance.
-  briefsToday: async () => {
-    let count = 0;
-    let cursor: string | undefined;
-    do {
-      const page = await list({ prefix: `spend/${today()}/`, limit: 1000, cursor });
-      count += page.blobs.length;
-      cursor = page.cursor;
-    } while (cursor);
-    return count;
-  },
-  countBrief: async () => {
-    await put(`spend/${today()}/${randomUUID()}`, "1", { ...write, contentType: "text/plain" });
-  },
-  dailyCap: () => {
-    const n = Number(process.env.DAILY_BRIEF_CAP);
-    return Number.isInteger(n) && n >= 0 ? n : 100;
+  reserveBrief: async () => {
+    const cap = dailyCap();
+    const redis = getRedis();
+    if (redis) {
+      // Atomic across instances. If Redis fails, fall back to the blob count below.
+      try {
+        return await reserveDaily(redis, cap);
+      } catch {}
+    }
+    return reserveWithBlobs(cap);
   },
 };
+
+export function dailyCap() {
+  const n = Number(process.env.DAILY_BRIEF_CAP);
+  return Number.isInteger(n) && n >= 0 ? n : 100;
+}
+
+// Without Redis: one marker blob per brief. Counting then writing isn't atomic, so two instances
+// racing at the limit can go a little over. Redis removes that race.
+async function reserveWithBlobs(cap: number) {
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await list({ prefix: `spend/${today()}/`, limit: 1000, cursor });
+    count += page.blobs.length;
+    cursor = page.cursor;
+  } while (cursor);
+  if (count >= cap) return null;
+  const marker = await put(`spend/${today()}/${randomUUID()}`, "1", { ...write, contentType: "text/plain" });
+  return async () => {
+    await del(marker.url);
+  };
+}
 
 const searchCache = ttlCache<SearchResult>(5 * 60_000);
 const jobCache = ttlCache<ApiJob>(10 * 60_000);
@@ -182,17 +198,20 @@ async function generateJobBrief(job: ApiJob, deps: NetworkDeps): Promise<JobBrie
   if (job.status && job.status !== "open") return fail("This role is no longer open, so there's no brief to write.", 410, "not_found", { role });
   const desc = job.description_text ?? "";
   if (desc.length < MIN_POST) return fail("This listing has too little description to brief from.", 422, "not_a_job_post", { role });
-  const used = await deps.briefsToday().catch(() => Infinity);
-  if (used >= deps.dailyCap()) return fail("Today's budget for new briefs is used up. Try again tomorrow.", 503, "budget_exhausted", { role });
+  // If the budget can't be checked, refuse: this path spends money.
+  const release = await deps.reserveBrief().catch(() => null);
+  if (!release) return fail("Today's budget for new briefs is used up. Try again tomorrow.", 503, "budget_exhausted", { role });
 
   let usage: Usage | undefined;
   try {
     const brief = await deps.generate(desc, (u) => (usage = u));
+    // A rejected post still cost a model call, so it keeps its slot in the budget.
     if (!brief) return fail("This listing doesn't read like a job post, so there's no brief.", 422, "not_a_job_post", { role, usage });
-    await deps.countBrief().catch(() => {});
     await deps.save({ role, brief, at: new Date().toISOString() }).catch(() => {});
     return { role, brief, cached: false, ...(usage && { usage }) };
   } catch (err) {
+    // The model call failed, so give the slot back.
+    await release().catch(() => {});
     // Checked by status: errors from the SDK's other build fail instanceof.
     const status = (err as { status?: unknown }).status;
     if (err instanceof Anthropic.RateLimitError || status === 429) return fail("It's busy right now. Try again in a minute.", 503, "model_rate_limited", { role, usage });

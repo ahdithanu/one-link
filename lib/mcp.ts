@@ -162,7 +162,7 @@ function argError(err: z.ZodError) {
   return text(`Invalid arguments. ${issues}`, true);
 }
 
-export type ToolContext = { origin: string; limited: () => boolean; eventLimited: () => boolean; network?: NetworkDeps };
+export type ToolContext = { origin: string; limited: () => boolean | Promise<boolean>; eventLimited: () => boolean | Promise<boolean>; network?: NetworkDeps };
 export type ToolOutcome = { result: Content; category?: ErrorCategory; usage?: Usage };
 
 const done = (result: Content, category?: ErrorCategory, usage?: Usage): ToolOutcome => ({ result, ...(category && { category }), ...(usage && { usage }) });
@@ -194,7 +194,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     }
     const { role, brief } = found;
     const url = `${ctx.origin}/r/${role.short}`;
-    if (!ctx.eventLimited()) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
     return done({
       ...text(briefText(brief, `${role.title} at ${role.company}`, url, role)),
       structuredContent: { role: { ...role, warnings: warnings(role) }, brief, url },
@@ -277,11 +277,11 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     // A brief being written for someone else is joined, not paid for twice or counted against this caller.
     // Only a new brief costs a model call, so only it counts toward the caller's limit.
     if (net.kind === "new" && !deps.hasKey()) return done(text("Live briefs are switched off right now.", true), "model_unavailable");
-    if (net.kind === "new" && ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
+    if (net.kind === "new" && (await ctx.limited())) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
     const result = await writeJobBrief(net.job, deps);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = `${ctx.origin}/j/${result.role.id}`;
-    if (!ctx.eventLimited()) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
     return done(
       {
         ...text(briefText(result.brief, `${result.role.title} at ${result.role.company}`, url, result.role)),
@@ -296,11 +296,11 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     // Validate first so a malformed call doesn't use up the caller's hourly allowance.
     const parsed = ARGS.brief_from_job_post.safeParse(rawArgs);
     if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
-    if (ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
+    if (await ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
     const result = await makeBrief(parsed.data.job_post);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = result.id ? `${ctx.origin}/b/${result.id}` : null;
-    if (!ctx.eventLimited()) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
     const { brief } = result;
     return done({ ...text(briefText(brief, `${brief.title} at ${brief.company}`, url)), structuredContent: { brief, url } }, undefined, result.usage);
   }

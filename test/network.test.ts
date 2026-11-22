@@ -144,7 +144,7 @@ describe("writeJobBrief", () => {
   it("writes, saves and counts a new brief", async () => {
     let saved = 0;
     let counted = 0;
-    const r = await writeJobBrief(job(), ready({ save: async () => void saved++, countBrief: async () => void counted++ }));
+    const r = await writeJobBrief(job(), ready({ save: async () => void saved++, reserveBrief: async () => (counted++, async () => {}) }));
     assert.ok(!("error" in r));
     assert.equal(r.brief.build.title, "Backfill checker");
     assert.equal(saved, 1);
@@ -158,8 +158,8 @@ describe("writeJobBrief", () => {
     ["no API key", {}, { hasKey: () => false }, 503, "model_unavailable"],
     ["closed role", { status: "closed" }, {}, 410, "not_found"],
     ["thin listing", { description_text: "Short." }, {}, 422, "not_a_job_post"],
-    ["daily cap reached", {}, { briefsToday: async () => 100, dailyCap: () => 100 }, 503, "budget_exhausted"],
-    ["cap count unavailable", {}, { briefsToday: async () => Promise.reject(new Error("list failed")) }, 503, "budget_exhausted"],
+    ["daily cap reached", {}, { reserveBrief: async () => null }, 503, "budget_exhausted"],
+    ["cap count unavailable", {}, { reserveBrief: async () => Promise.reject(new Error("list failed")) }, 503, "budget_exhausted"],
     ["not a job post", {}, { generate: async () => null }, 422, "not_a_job_post"],
     ["model rate limit", {}, { generate: async () => Promise.reject(Object.assign(new Error("429"), { status: 429 })) }, 503, "model_rate_limited"],
     ["model error", {}, { generate: async () => Promise.reject(Object.assign(new Error("500"), { status: 500 })) }, 502, "model_error"],
@@ -174,13 +174,19 @@ describe("writeJobBrief", () => {
   }
   it("doesn't call the model once the cap is reached", async () => {
     let generated = false;
-    await writeJobBrief(job(), ready({ briefsToday: async () => 5, dailyCap: () => 5, generate: async () => ((generated = true), brief) }));
+    await writeJobBrief(job(), ready({ reserveBrief: async () => null, generate: async () => ((generated = true), brief) }));
     assert.equal(generated, false);
   });
-  it("doesn't count a post the model rejected", async () => {
-    let counted = false;
-    await writeJobBrief(job(), ready({ generate: async () => null, countBrief: async () => void (counted = true) }));
-    assert.equal(counted, false);
+  it("keeps the budget slot for a post the model rejected, since it cost a model call", async () => {
+    let released = false;
+    await writeJobBrief(job(), ready({ generate: async () => null, reserveBrief: async () => async () => void (released = true) }));
+    assert.equal(released, false);
+  });
+  it("gives the budget slot back when the model call fails", async () => {
+    let released = false;
+    const generate = async () => Promise.reject(Object.assign(new Error("500"), { status: 500 }));
+    await writeJobBrief(job(), ready({ generate, reserveBrief: async () => async () => void (released = true) }));
+    assert.equal(released, true);
   });
   it("rethrows unexpected errors", async () => {
     await assert.rejects(writeJobBrief(job(), ready({ generate: async () => Promise.reject(new TypeError("bug")) })), TypeError);
@@ -290,7 +296,7 @@ describe("one brief write per job at a time", () => {
     const j = job();
     const g = gated();
     let counted = 0;
-    const deps = offlineNetwork({ hasKey: () => true, generate: g.generate, countBrief: async () => void counted++ });
+    const deps = offlineNetwork({ hasKey: () => true, generate: g.generate, reserveBrief: async () => (counted++, async () => {}) });
     const first = writeJobBrief(j, deps);
     const second = writeJobBrief(j, deps);
     await new Promise((r) => setImmediate(r));

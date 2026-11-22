@@ -15,9 +15,7 @@ export const offlineNetwork = (over: Partial<NetworkDeps> = {}): NetworkDeps => 
   generate: async () => null,
   loadSaved: async () => null,
   save: async () => {},
-  briefsToday: async () => 0,
-  countBrief: async () => {},
-  dailyCap: () => 100,
+  reserveBrief: async () => async () => {},
   ...over,
 });
 
