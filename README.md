@@ -188,6 +188,10 @@ Every MCP request writes one JSON line to stdout, which ends up in Vercel's runt
 
 `GET /api/health` reports whether rate limits are global or per instance, whether Redis is reachable and its latency, today's brief budget use against the cap, and whether a model key is configured. It never includes secret values. A `degraded` list names anything running weaker than intended, so a fallback to per-instance limits is visible rather than silent. Results are cached for 15 seconds.
 
+### Metrics and runbook
+
+Brief routes log one `web_request` line per request (route, status, category, duration, tokens; never the input), alongside the MCP `mcp_request` lines and the talent API lines. `npm run report:logs -- logs.jsonl` turns exported logs into availability, per-tool success and p50/p95 latency, generation success, failures, rate-limit rejections, talent API health, Redis fallbacks and model spend. Deploying, rollback, incident steps and alert setup are in [docs/runbook.md](docs/runbook.md).
+
 ### Production monitor
 
 `.github/workflows/monitor.yml` runs the read-only smoke test against production every 15 minutes, with `--live` so it also checks network search and the home page. It retries once after 30 seconds, and a failed run emails the repository owner. Nothing pages a phone yet, and GitHub pauses scheduled workflows in a public repository after 60 days without commits.
