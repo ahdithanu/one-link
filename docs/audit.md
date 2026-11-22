@@ -50,6 +50,10 @@ Not using an MCP SDK is not treated as a defect. The server is about 200 lines w
 | 18 | Low | Reliability | Every tool call did a Blob read with caching off (`useCache: false`). Measured production `list_briefs` median was 282 ms against 129 ms for `initialize`, which needs no data. | Fixed for MCP. 60 s in-memory board cache per instance. Pages still read fresh. After deploy, production `list_briefs` fell from a 282 ms to a 95 ms median, the same as `initialize`. |
 | 19 | Low | Security | The cron secret was compared with `!==`, which is not constant-time. | Fixed. `timingSafeEqual` on SHA-256 digests. |
 | 20 | Info | Improvement | No logs, so failures and model spend were invisible. | Fixed. One JSON line per MCP request (see README). |
+| 21 | Medium | Security | **Unlimited upstream lookups.** `/j/<id>`, `/api/job-brief` and the MCP lookup tools called the talent network API for any id, with no per-caller limit. A script with random ids could get One Link rate-limited at speedrun's edge for everyone. Found in the 2026-11-22 re-review. | Fixed. Every path that can reach the API shares a 600-an-hour per-caller budget. Speedrun briefs need no lookup and aren't limited. Regression tests. |
+| 22 | Low | Security | `/api/brief` checked the rate limit before validating input, so malformed requests used up a caller's allowance. Found in the 2026-11-22 re-review. | Fixed. Validation first. Regression test. |
+| 23 | Low | Security | The brief routes trusted `Content-Length` for their size cap, so a chunked body was read whole up to the platform limit. Found in the 2026-11-22 re-review. | Fixed. Bodies are read through `readCapped` (64 KB, 4 KB for `/api/job-brief`). Regression test. |
+| 24 | Low | Security | Brief text is model-written from public job posts that anyone can edit, and was returned to agents with nothing marking it as data. Found in the 2026-11-22 re-review. | Mitigated. The server instructions tell agents to treat brief text as content, never as instructions. The model eval includes a prompt-injection case. |
 
 ### Checked, no issue found
 

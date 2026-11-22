@@ -50,3 +50,26 @@ describe("/api/job-brief", () => {
     assert.equal((await res.json()).code, "not_found");
   });
 });
+
+describe("security regressions", () => {
+  it("a chunked body with no Content-Length is still capped at 64 KB", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key-not-used";
+    try {
+      const big = JSON.stringify({ input: "x".repeat(200_000) });
+      const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(big)); c.close(); } });
+      const r = new NextRequest("http://localhost/api/brief", { method: "POST", body: stream, headers: { "content-type": "application/json", "x-real-ip": "203.0.113.60" }, duplex: "half" } as never);
+      assert.equal(r.headers.get("content-length"), null);
+      const res = await briefPOST(r);
+      assert.equal(res.status, 413);
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
+  it("role lookups share a per-caller budget, so no one can drive unlimited upstream calls", async () => {
+    const ip = "203.0.113.61";
+    let last = 0;
+    for (let i = 0; i < 601; i++) last = (await jobBriefPOST(req("http://localhost/api/job-brief", { id: "not-a-job" }, ip))).status;
+    assert.equal(last, 429);
+  });
+});
