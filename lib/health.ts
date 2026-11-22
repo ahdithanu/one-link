@@ -1,6 +1,6 @@
 import { getRedis } from "./limit";
 import { SERVER } from "./mcp";
-import { dailyCap } from "./network";
+import { dailyCap, talentBreaker } from "./network";
 
 // What /api/health reports. It never includes secret values: only whether things are configured,
 // reachable, and how they're behaving. "degraded" names anything weaker than intended.
@@ -12,6 +12,7 @@ export type Health = {
   limits: { scope: "global" | "per-instance"; redis: { configured: boolean; reachable: boolean | null; latencyMs: number | null } };
   dailyBudget: { cap: number; usedToday: number | null };
   model: { configured: boolean };
+  talentApi: ReturnType<typeof talentBreaker.snapshot>;
   degraded: string[];
 };
 
@@ -47,6 +48,8 @@ export async function healthReport(extra: { degraded?: string[] } = {}): Promise
   else if (!reachable) degraded.push("Shared store unreachable: rate limits have fallen back to per instance.");
   const model = Boolean(process.env.ANTHROPIC_API_KEY);
   if (!model) degraded.push("No model key: new briefs are switched off.");
+  const talentApi = talentBreaker.snapshot();
+  if (talentApi.state !== "closed") degraded.push(`Talent network API circuit is ${talentApi.state}: search serves cached results where it can.`);
   return {
     ok: true,
     service: "one-link",
@@ -55,6 +58,7 @@ export async function healthReport(extra: { degraded?: string[] } = {}): Promise
     limits: { scope: global ? "global" : "per-instance", redis: { configured: Boolean(redis), reachable, latencyMs } },
     dailyBudget: { cap: dailyCap(), usedToday },
     model: { configured: model },
+    talentApi,
     degraded,
   };
 }

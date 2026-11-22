@@ -60,6 +60,7 @@ export const OUTPUT = {
     total: z.number().int(),
     page: z.number().int(),
     has_more: z.boolean(),
+    stale_minutes: z.number().optional(),
     roles: z.array(
       z.looseObject({
         job_id: z.string(),
