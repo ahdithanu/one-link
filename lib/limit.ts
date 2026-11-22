@@ -63,9 +63,14 @@ export type ScriptStore = Pick<Redis, "eval">;
 export function slidingWindow(store: ScriptStore, name: string, max: number, windowMs = HOUR, timeoutMs = 1500): Remote {
   return async (key) => {
     const call = store.eval(SLIDING_WINDOW, [`one-link:rl:${name}:${key}`], [String(windowMs), String(max), randomUUID()]);
-    const timeout = new Promise<"timeout">((r) => setTimeout(() => r("timeout"), timeoutMs).unref?.());
-    const res = await Promise.race([call, timeout]);
-    return res === "timeout" ? { success: true, reason: "timeout" } : { success: Number(res) === 1 };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), timeoutMs)));
+    try {
+      const res = await Promise.race([call, timeout]);
+      return res === "timeout" ? { success: true, reason: "timeout" } : { success: Number(res) === 1 };
+    } finally {
+      clearTimeout(timer);
+    }
   };
 }
 

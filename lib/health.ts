@@ -15,7 +15,15 @@ export type Health = {
   degraded: string[];
 };
 
-const timeout = (ms: number) => new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms).unref?.());
+// Races a call against a deadline and always clears the timer, so nothing is left pending.
+async function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([p, new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error("timeout")), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function healthReport(extra: { degraded?: string[] } = {}): Promise<Health> {
   const redis = getRedis();
@@ -25,10 +33,10 @@ export async function healthReport(extra: { degraded?: string[] } = {}): Promise
   if (redis) {
     const t0 = Date.now();
     try {
-      await Promise.race([redis.ping(), timeout(1500)]);
+      await within(redis.ping(), 1500);
       reachable = true;
       latencyMs = Date.now() - t0;
-      usedToday = Number(await Promise.race([redis.get(`one-link:spend:${new Date().toISOString().slice(0, 10)}`), timeout(1500)])) || 0;
+      usedToday = Number(await within(redis.get(`one-link:spend:${new Date().toISOString().slice(0, 10)}`), 1500)) || 0;
     } catch {
       reachable = false;
     }
