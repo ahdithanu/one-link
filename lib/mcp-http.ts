@@ -186,7 +186,7 @@ export function streamMcp(raw: string, headers: Headers, ctx: ToolContext, token
         send({
           jsonrpc: "2.0",
           method: "notifications/progress",
-          params: { progressToken: token, progress: ++progress, message: `${phase} (${Math.round((Date.now() - started) / 1000)} s)` },
+          params: { progressToken: token, progress: ++progress, message: `${phase} · ${Math.round((Date.now() - started) / 1000)}s` },
         });
       const heartbeat = setInterval(notify, heartbeatMs);
       handleMcp(raw, headers, { ...ctx, progress: (p) => ((phase = p), notify()) })

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Brief, RoleListing } from "@/lib/data";
 import { BriefView } from "./BriefView";
+import { progressLabel, useBriefRequest, type Failure } from "./useBriefRequest";
 
 type Live = Brief & { company: string; title: string };
 
@@ -12,38 +13,55 @@ const PAGE = 30;
 
 function PasteBox({ onBrief }: { onBrief: (b: Live, id: string | null) => void }) {
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const { busy, seconds, send } = useBriefRequest();
+  const box = useRef<HTMLTextAreaElement>(null);
+  const isLink = /^https?:\/\/\S+$/i.test(input.trim());
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const res = await fetch("/api/brief", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ input }),
-      });
-      const data = await res.json();
-      if (!res.ok) setError(data.error ?? "Something went wrong. Try again.");
-      else onBrief(data.brief, data.id ?? null);
-    } catch {
-      setError("Something went wrong. Try again.");
-    } finally {
-      setBusy(false);
+    setFailure(null);
+    const res = await send<{ brief: Live; id: string | null }>("/api/brief", { input });
+    if (!res) return;
+    if (res.ok) return onBrief(res.data.brief, res.data.id ?? null);
+    setFailure(res.failure);
+    // The page couldn't be read: switch to pasting the description, which always works.
+    if (res.failure.code === "fetch_failed") {
+      setInput("");
+      // After the re-render that re-enables the field.
+      setTimeout(() => box.current?.focus(), 0);
     }
   }
 
   return (
-    <form className="paste" onSubmit={submit}>
+    <form className="paste" onSubmit={submit} aria-busy={busy}>
       <label htmlFor="post">Paste any job link or description</label>
-      <textarea id="post" required value={input} onChange={(e) => setInput(e.target.value)} placeholder="https://… or the full job post" />
+      <textarea
+        id="post"
+        ref={box}
+        required
+        value={input}
+        disabled={busy}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder={failure?.code === "fetch_failed" ? "Paste the full job description here" : "https://… or the full job post"}
+      />
       <div className="row">
-        <span className="note">Works for any job at any company. No signup to read your brief.</span>
-        <button className="btn" type="submit" disabled={busy}>{busy ? "Reading the post…" : "Get my brief"}</button>
+        <span className="note" aria-live="polite">
+          {busy ? progressLabel(seconds, isLink ? "Fetching the job page…" : "Reading the post…") : "Works for any job at any company. No signup to read your brief."}
+        </span>
+        <button className="btn" type="submit" disabled={busy}>{busy ? "Working…" : "Get my brief"}</button>
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
+      {failure && (
+        <p className="error" role="alert">
+          {failure.message}
+          {failure.code === "rate_limited" && (
+            <>
+              {" "}
+              <a href="#roles">Browse ready-made briefs</a>
+            </>
+          )}
+        </p>
+      )}
     </form>
   );
 }

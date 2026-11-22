@@ -29,22 +29,31 @@ export const MAX_POST = 20000;
 
 const fail = (error: string, status: number, category: ErrorCategory, usage?: Usage) => ({ error, status, category, ...(usage && { usage }) });
 
-// Shared by the paste box and the MCP server. The caller applies the rate limit.
-export async function makeBrief(raw: unknown, deps: MakeBriefDeps = defaultDeps): Promise<MakeBriefResult> {
-  if (!deps.hasKey()) return fail("Live briefs are switched off right now. Pick a role from the list instead.", 503, "model_unavailable");
+const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s);
 
+// The checks that need no network or model. Callers run these before the rate limit, so a
+// malformed request never uses up someone's allowance.
+export function checkInput(raw: unknown): { error: string; status: number; category: ErrorCategory } | null {
   const input = typeof raw === "string" ? raw.trim() : "";
   if (input.length < 12) return fail("Paste a job link or the full job description.", 400, "invalid_arguments");
   if (input.length > MAX_POST) return fail("That's too long. Paste just the job description.", 400, "invalid_arguments");
+  if (!isUrl(input) && input.length < MIN_POST) return fail("That's too short to be a full job description. Paste the whole post.", 400, "invalid_arguments");
+  return null;
+}
 
+// Shared by the paste box and the MCP server. The caller applies the rate limit.
+export async function makeBrief(raw: unknown, deps: MakeBriefDeps = defaultDeps): Promise<MakeBriefResult> {
+  if (!deps.hasKey()) return fail("Live briefs are switched off right now. Pick a role from the list instead.", 503, "model_unavailable");
+  const invalid = checkInput(raw);
+  if (invalid) return invalid;
+
+  const input = (raw as string).trim();
   let post = input;
-  if (/^https?:\/\/\S+$/i.test(input)) {
+  if (isUrl(input)) {
     const fetched = await deps.fetchPost(input).catch((err) => (err instanceof FetchBlocked ? "blocked" : null));
     if (fetched === "blocked") return fail("Only public https job pages can be fetched. Paste the job description instead.", 422, "fetch_failed");
     if (!fetched) return fail("That page wouldn't load for us. Paste the job description instead.", 422, "fetch_failed");
     post = fetched;
-  } else if (input.length < MIN_POST) {
-    return fail("That's too short to be a full job description. Paste the whole post.", 400, "invalid_arguments");
   }
 
   let usage: Usage | undefined;

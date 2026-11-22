@@ -287,7 +287,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     // Only a new brief costs a model call, so only it counts toward the caller's limit.
     if (net.kind === "new" && !deps.hasKey()) return done(text("Live briefs are switched off right now.", true), "model_unavailable");
     if (net.kind === "new" && (await ctx.limited())) return done(text("Limit of 5 new briefs an hour reached. Try again later.", true), "rate_limited");
-    ctx.progress?.(net.kind === "pending" ? "Waiting for a brief another request is writing" : "Writing the brief (usually 10 to 30 seconds)");
+    ctx.progress?.(net.kind === "pending" ? "Waiting for a brief another request is writing" : "Writing the brief, usually 10 to 30 seconds");
     const result = await writeJobBrief(net.job, deps);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = `${ctx.origin}/j/${result.role.id}`;
@@ -307,7 +307,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     const parsed = ARGS.brief_from_job_post.safeParse(rawArgs);
     if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
     if (await ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
-    ctx.progress?.(/^https?:\/\/\S+$/i.test(parsed.data.job_post.trim()) ? "Fetching the job page, then writing the brief" : "Writing the brief (usually 10 to 30 seconds)");
+    ctx.progress?.(/^https?:\/\/\S+$/i.test(parsed.data.job_post.trim()) ? "Fetching the job page, then writing the brief" : "Writing the brief, usually 10 to 30 seconds");
     const result = await makeBrief(parsed.data.job_post);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = result.id ? `${ctx.origin}/b/${result.id}` : null;

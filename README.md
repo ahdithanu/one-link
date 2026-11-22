@@ -108,6 +108,7 @@ Every tool declares an `outputSchema` (JSON Schema 2020-12) generated from the z
 | `Host` not served by this deployment (DNS rebinding) | 403 |
 | Body over 64 KB | 413 |
 | `GET` or `DELETE` (no stream, no sessions) | 405 |
+| `tools/call` for `brief_for_job` or `brief_from_job_post` with `_meta.progressToken`, from a client that accepts `text/event-stream` | 200 as an SSE stream: `notifications/progress` for each phase (looking up the role, fetching the page, writing the brief) and a heartbeat every 5 s with elapsed time, then the response. Every other request stays plain JSON. Whether a client shows progress depends on the client; not all send a progress token. |
 
 ## Evaluation
 

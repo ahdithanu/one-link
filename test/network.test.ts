@@ -159,7 +159,7 @@ describe("writeJobBrief", () => {
     ["closed role", { status: "closed" }, {}, 410, "not_found"],
     ["thin listing", { description_text: "Short." }, {}, 422, "not_a_job_post"],
     ["daily cap reached", {}, { reserveBrief: async () => null }, 503, "budget_exhausted"],
-    ["cap count unavailable", {}, { reserveBrief: async () => Promise.reject(new Error("list failed")) }, 503, "budget_exhausted"],
+    ["cap count unavailable", {}, { reserveBrief: async () => Promise.reject(new Error("list failed")) }, 503, "budget_unavailable"],
     ["not a job post", {}, { generate: async () => null }, 422, "not_a_job_post"],
     ["model rate limit", {}, { generate: async () => Promise.reject(Object.assign(new Error("429"), { status: 429 })) }, 503, "model_rate_limited"],
     ["model error", {}, { generate: async () => Promise.reject(Object.assign(new Error("500"), { status: 500 })) }, 502, "model_error"],
