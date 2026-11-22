@@ -84,3 +84,38 @@ describe("daily brief budget", () => {
     assert.equal(await reserveDaily(store, 0, "2026-11-24"), null);
   });
 });
+
+describe("sliding window on the store", () => {
+  it("a store that doesn't answer in time counts as a timeout, not a pass", async () => {
+    const { slidingWindow } = await import("@/lib/limit");
+    const never = { eval: () => new Promise(() => {}) } as never;
+    const remote = slidingWindow(never, "t", 5, 1000, 20);
+    assert.deepEqual(await remote("k"), { success: true, reason: "timeout" });
+  });
+
+  it("passes the window, limit and a unique member to one atomic script", async () => {
+    const { slidingWindow } = await import("@/lib/limit");
+    const calls: unknown[][] = [];
+    const store = { eval: async (...a: unknown[]) => (calls.push(a), 0) } as never;
+    assert.deepEqual(await slidingWindow(store, "brief-caller", 5)("abc"), { success: false });
+    const [script, keys, args] = calls[0] as [string, string[], string[]];
+    assert.match(script, /ZREMRANGEBYSCORE[\s\S]*ZCARD[\s\S]*ZADD/);
+    assert.deepEqual(keys, ["one-link:rl:brief-caller:abc"]);
+    assert.equal(args[0], String(60 * 60 * 1000));
+    assert.equal(args[1], "5");
+  });
+
+  it("logs once when it falls back to per-instance limits", async () => {
+    const warnings: string[] = [];
+    const orig = console.warn;
+    console.warn = (m: string) => void warnings.push(m);
+    try {
+      const limit = sharedLimiter("t-warn", 3, async () => Promise.reject(new Error("down")));
+      await limit("a");
+      await limit("b");
+    } finally {
+      console.warn = orig;
+    }
+    assert.ok(warnings.length <= 1);
+  });
+});

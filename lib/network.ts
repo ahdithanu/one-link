@@ -5,6 +5,7 @@ import { generateBrief } from "./brief";
 import type { Board, Brief, Role } from "./data";
 import type { ErrorCategory, Usage } from "./log";
 import { getRedis, reserveDaily } from "./limit";
+import { acquireLock, lockHeld, releaseLock } from "./lock";
 import { MIN_POST } from "./make-brief";
 import { toRole, type Job } from "./refresh";
 
@@ -57,7 +58,32 @@ export type NetworkDeps = {
   // Reserves one of today's new briefs before the model call. Returns a function that gives the
   // slot back, or null when the day's budget is used up.
   reserveBrief: () => Promise<(() => Promise<void>) | null>;
+  // Cross-instance lock per job. Null when no shared store is configured (in-process joining only).
+  lock?: JobLock | null;
+  // How long a request waits for another instance's write before giving up (bounded by the 60 s limit).
+  waitMs?: number;
+  pollMs?: number;
 };
+
+export type JobLock = {
+  acquire: (jobId: string) => Promise<string | null>;
+  release: (jobId: string, token: string) => Promise<void>;
+  held: (jobId: string) => Promise<boolean>;
+};
+
+// 90 s outlives one generation (45 s model timeout, 1 retry, save) but frees a crashed worker's lock.
+export const LOCK_TTL_MS = 90_000;
+const lockKey = (jobId: string) => `one-link:lock:brief:${jobId}`;
+
+export function redisJobLock(): JobLock | null {
+  const redis = getRedis();
+  if (!redis) return null;
+  return {
+    acquire: (id) => acquireLock(redis, lockKey(id), LOCK_TTL_MS),
+    release: async (id, token) => void (await releaseLock(redis, lockKey(id), token)),
+    held: (id) => lockHeld(redis, lockKey(id)),
+  };
+}
 
 export type SavedJobBrief = { role: NetRole; brief: Brief; at: string };
 
@@ -71,6 +97,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 const write = { access: "private", addRandomSuffix: false } as const;
 
 export const defaultNetworkDeps: NetworkDeps = {
+  get lock() {
+    return redisJobLock();
+  },
   getJson,
   hasKey: () => Boolean(process.env.ANTHROPIC_API_KEY),
   generate: async (post, onUsage) => {
@@ -180,7 +209,7 @@ export function writeJobBrief(job: ApiJob, deps: NetworkDeps = defaultNetworkDep
   const running = inflight.get(job.id);
   // Joiners get the same brief, marked cached and without usage, so tokens are logged once.
   if (running) return running.then((r) => ("error" in r ? r : { role: r.role, brief: r.brief, cached: true }));
-  const p = generateJobBrief(job, deps);
+  const p = coordinatedWrite(job, deps);
   inflight.set(job.id, p);
   p.then(
     (r) => {
@@ -190,6 +219,45 @@ export function writeJobBrief(job: ApiJob, deps: NetworkDeps = defaultNetworkDep
     () => inflight.delete(job.id),
   );
   return p;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Across instances: take the job's lock, then check for a saved brief before paying for one. If
+// another instance holds the lock, wait (bounded) for its brief to appear instead of writing a
+// second one. If the lock disappears without a brief (that write failed), try to take it.
+export async function coordinatedWrite(job: ApiJob, deps: NetworkDeps): Promise<JobBriefResult> {
+  const lock = deps.lock;
+  if (!lock) return generateJobBrief(job, deps);
+  const deadline = Date.now() + (deps.waitMs ?? 40_000);
+  for (;;) {
+    let token: string | null;
+    try {
+      token = await lock.acquire(job.id);
+    } catch {
+      // Redis unreachable: write without the cross-instance lock (in-process joining still applies).
+      console.warn(JSON.stringify({ event: "brief_lock_fallback", detail: "shared store unavailable, writing without a cross-instance lock" }));
+      return generateJobBrief(job, deps);
+    }
+    if (token) {
+      try {
+        const saved = await deps.loadSaved(job.id).catch(() => null);
+        if (saved) return { role: toNetRole(job), brief: saved.brief, cached: true };
+        return await generateJobBrief(job, deps);
+      } finally {
+        await lock.release(job.id, token).catch(() => {});
+      }
+    }
+    // Another instance is writing this brief.
+    while (Date.now() < deadline) {
+      await sleep(deps.pollMs ?? 1500);
+      const saved = await deps.loadSaved(job.id).catch(() => null);
+      if (saved) return { role: toNetRole(job), brief: saved.brief, cached: true };
+      if (!(await lock.held(job.id).catch(() => true))) break;
+    }
+    if (Date.now() >= deadline)
+      return fail("Another request is writing this brief right now. Try again in a few seconds.", 409, "brief_in_progress", { role: toNetRole(job) });
+  }
 }
 
 async function generateJobBrief(job: ApiJob, deps: NetworkDeps): Promise<JobBriefResult> {

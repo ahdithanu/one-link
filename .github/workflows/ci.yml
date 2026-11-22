@@ -47,6 +47,39 @@ jobs:
         if: failure()
         run: cat server.log || true
 
+  distributed:
+    # Rate limits, the daily budget and the brief lock, checked across separate processes against a
+    # real Redis behind the Upstash REST API (the serverless-redis-http emulator Upstash documents).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7.4-alpine
+      srh:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: ci-test-token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
+    env:
+      UPSTASH_REDIS_REST_URL: http://localhost:8079
+      UPSTASH_REDIS_REST_TOKEN: ci-test-token
+      ONE_LINK_TEST_REDIS: "1"
+      ONE_LINK_LOG: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Wait for the Redis REST emulator
+        run: for i in $(seq 1 30); do curl -sf -X POST -H "Authorization: Bearer ci-test-token" -H "content-type: application/json" -d '["PING"]' http://localhost:8079/ && break; sleep 1; done
+      - name: Cross-process limit and lock tests
+        run: npm run test:redis
+
 
 # The model evaluation (npm run eval:model) calls the Anthropic API and costs money, so it is run by
 # hand rather than in CI. See docs/fde-case-study.md.

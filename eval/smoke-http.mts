@@ -59,6 +59,11 @@ if (LIVE) {
   r = await post(JSON.stringify({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "search_roles", arguments: { q: "engineer" } } }));
   j = await r.json();
   check(`search_roles reaches the talent network (${Date.now() - t0} ms)`, !j.result?.isError && j.result?.structuredContent?.roles?.length > 0, JSON.stringify(j).slice(0, 200));
+  r = await fetch(new URL("/api/health", URL_));
+  j = await r.json().catch(() => ({}));
+  check(`health 200 (limits: ${j.limits?.scope ?? "?"}, redis reachable: ${j.limits?.redis?.reachable ?? "n/a"})`, r.status === 200 && j.ok === true, JSON.stringify(j).slice(0, 200));
+  // Set EXPECT_GLOBAL_LIMITS=1 once Upstash is connected, so a fallback to per-instance limits fails loudly.
+  if (process.env.EXPECT_GLOBAL_LIMITS === "1") check("rate limits are global", j.limits?.scope === "global", JSON.stringify(j.degraded ?? []));
   t0 = Date.now();
   r = await fetch(new URL("/", URL_));
   check(`home page 200 (${Date.now() - t0} ms)`, r.status === 200, String(r.status));

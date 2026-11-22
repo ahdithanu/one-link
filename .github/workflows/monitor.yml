@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 5
     env:
       TARGET: https://one-link-eta.vercel.app/mcp
+      # Repository variable. Set it to 1 (Settings > Secrets and variables > Actions > Variables) once
+      # Upstash is connected, so a silent fallback to per-instance limits fails the monitor.
+      EXPECT_GLOBAL_LIMITS: ${{ vars.EXPECT_GLOBAL_LIMITS }}
     steps:
       - uses: actions/checkout@v4
         with:

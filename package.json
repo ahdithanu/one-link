@@ -14,11 +14,11 @@
     "eval:tools": "tsx eval/tools.mts --strict",
     "eval:model": "tsx eval/model.mts",
     "smoke": "tsx eval/smoke-http.mts",
-    "bench": "tsx eval/bench.mts"
+    "bench": "tsx eval/bench.mts",
+    "test:redis": "tsx --test test-integration/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
-    "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.41.0",
     "@vercel/blob": "^2.9.0",
     "next": "^15.5.29",
