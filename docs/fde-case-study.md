@@ -6,7 +6,7 @@ AI made job applications free to send, so founders at early-stage startups now g
 
 One Link answers both questions. For any job it writes a brief: the one thing to build, a Saturday-to-Sunday plan, what makes it good, how it falls flat, and the first line of the note. It shows the role's age and pay first. It works as a website, and as an MCP server, so an agent using the speedrun talent network's own MCP server can pass a job id straight across.
 
-The MCP server worked, but it had never been tested, measured or audited. This project brings it to a standard I'd be comfortable putting in front of a customer's agents, without rebuilding it.
+The MCP server worked, but it had never been tested, measured or audited. This project moves it toward production readiness without rebuilding it. It isn't production software yet: what's still missing is listed under [What should improve next](#what-should-improve-next) and in the README's known limitations.
 
 ## Technical architecture
 
