@@ -143,3 +143,16 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 24px 72px; }
 .cmd { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; white-space: pre; }
 .why .section .cmd + p, .why .section p + .cmd { margin-top: 12px; }
 .why code { font-family: var(--mono); font-size: 0.88em; }
+
+/* /stats (private) */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat-tiles div { border: 1px solid var(--line); padding: 12px 14px; }
+.stat-tiles dt { font-family: var(--mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-tiles dd { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.stats-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.stats-table th, .stats-table td { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.stats-table th { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--muted); }
+.stats-table td:not(:first-child), .stats-table th:not(:first-child) { text-align: right; }
+.stats-login { display: flex; gap: 8px; max-width: 420px; }
+.stats-login input { flex: 1; font: inherit; padding: 10px 12px; border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink); }
+.stats-login button { font: inherit; font-weight: 700; padding: 10px 18px; border: 0; background: var(--ink); color: var(--paper); cursor: pointer; }

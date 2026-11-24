@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
+import { SiteAnalytics } from "@/components/SiteAnalytics";
 import { Visit } from "@/components/Visit";
 import "./globals.css";
 
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="https://github.com/ahdithanu/one-link">The code is on GitHub.</a>
           </p>
         </footer>
+        <SiteAnalytics />
       </body>
     </html>
   );
