@@ -13,7 +13,7 @@ const REDIS_PAIRS = [
   ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
   ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
 ];
-const OPTIONAL = { DAILY_BRIEF_CAP: "defaults to 100", MCP_ALLOWED_HOSTS: "only needed for a custom domain" };
+const OPTIONAL = { DAILY_BRIEF_CAP: "defaults to 100", MCP_ALLOWED_HOSTS: "only needed for a custom domain", STATS_KEY: "turns on the private /stats page (16+ characters)" };
 
 let listing;
 try {

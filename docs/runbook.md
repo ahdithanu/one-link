@@ -82,6 +82,11 @@ The report gives:
 
 `vercel logs` only covers recent logs. For history, add a log drain (Vercel → Project → Settings → Log Drains) to a log service. That needs an account with that service.
 
+## Usage analytics
+
+- Visitors: Vercel → `one-link` → Analytics. Web Analytics is enabled on the project, and the free plan covers this traffic.
+- Agent usage and unique MCP callers: `https://one-link-eta.vercel.app/stats`. It needs Upstash connected (see below) and a `STATS_KEY` of 16 or more characters, added in Vercel → Settings → Environment Variables → Production, followed by a redeploy. Rotating `STATS_KEY` logs out every open session.
+
 ## Alerts
 
 - **Today:** the production monitor (`.github/workflows/monitor.yml`) runs the live smoke test every 15 minutes, retries once, and fails the run on a real problem. GitHub emails the repository owner when a scheduled run fails.

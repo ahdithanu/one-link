@@ -51,3 +51,27 @@ describe("distributed limits and locks across processes", opts, () => {
     assert.equal(res.filter((r) => r.cached === false).length, 1);
   });
 });
+
+describe("MCP usage counts in Redis", opts, () => {
+  it("counts calls, clients and unique callers per day and across days", async () => {
+    const { readUsage, recordUsage } = await import("@/lib/usage");
+    const redis = getRedis()!;
+    // A fixed past window so the test never touches real days.
+    const days = ["2001-01-02", "2001-01-01"];
+    for (const d of days) await redis.del(`usage:d:${d}`, `usage:u:${d}`, `usage:t:${d}`);
+    await recordUsage(redis, "caller-a", { method: "initialize", ok: true, client: "cursor" }, days[1]);
+    await recordUsage(redis, "caller-a", { method: "tools/call", tool: "search_roles", ok: true }, days[1]);
+    await recordUsage(redis, "caller-b", { method: "tools/call", tool: "search_roles", ok: false }, days[0]);
+    await recordUsage(redis, "caller-a", { method: "tools/call", tool: "list_briefs", ok: true }, days[0]);
+    await recordUsage(redis, "caller-c", { method: "tools/list", ok: true }, days[0]);
+    const u = await readUsage(redis, 2, new Date("2001-01-02T12:00:00Z"));
+    assert.deepEqual(u.days.map((d) => [d.day, d.callers, d.toolCallers, d.calls, d.errors]), [
+      ["2001-01-02", 3, 2, 2, 1],
+      ["2001-01-01", 1, 1, 1, 0],
+    ]);
+    assert.deepEqual(u.days[1].clients, { cursor: 1 });
+    assert.equal(u.uniqueCallers.period, 3);
+    assert.equal(u.uniqueCallers.periodToolCallers, 2);
+    assert.ok((await redis.ttl("usage:d:2001-01-02")) > 0);
+  });
+});

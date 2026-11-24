@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { clientIp, eventLimited, limited, upstreamLimited } from "@/lib/limit";
+import { after, NextRequest, NextResponse } from "next/server";
+import { callerKey, clientIp, eventLimited, getRedis, limited, upstreamLimited } from "@/lib/limit";
+import { recordUsage, type McpUsage } from "@/lib/usage";
 import { CORS, handleMcp, progressToken, readCapped, streamMcp } from "@/lib/mcp-http";
 
 export const runtime = "nodejs";
@@ -7,8 +8,20 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const ip = clientIp(req.headers);
+  // Usage counts are written after the response is sent, and a failure there never affects it.
+  const record = (u: McpUsage) => {
+    const redis = getRedis();
+    if (!redis) return;
+    const write = () => recordUsage(redis, callerKey(ip), u).catch(() => {});
+    try {
+      after(write);
+    } catch {
+      // Outside the request scope (shouldn't happen): write now, without holding the response.
+      void write();
+    }
+  };
   const raw = await readCapped(req.body);
-  const ctx = { origin: req.nextUrl.origin, limited: () => limited(ip), eventLimited: () => eventLimited(ip), upstreamLimited: () => upstreamLimited(ip) };
+  const ctx = { origin: req.nextUrl.origin, limited: () => limited(ip), eventLimited: () => eventLimited(ip), upstreamLimited: () => upstreamLimited(ip), record };
   // A slow tool call that asked for progress gets an SSE stream; everything else is plain JSON.
   const token = progressToken(raw, req.headers);
   if (token !== null)

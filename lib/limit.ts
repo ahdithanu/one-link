@@ -142,3 +142,7 @@ export async function reserveDaily(store: CounterStore, cap: number, day = new D
 // client sent. Elsewhere (for example `next start` behind no proxy) both are client-controlled.
 export const clientIp = (headers: Headers) =>
   headers.get("x-real-ip")?.trim() || headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+// Guesses at the /stats key: 10 an hour per caller.
+const statsLogins = sharedLimiter("stats-login", 10);
+export const statsLoginLimited = (ip: string) => statsLogins(callerKey(ip));

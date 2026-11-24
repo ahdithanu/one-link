@@ -173,6 +173,8 @@ export type ToolContext = {
   network?: NetworkDeps;
   // Set when the client asked for progress notifications (see lib/mcp-http.ts). Names the current phase.
   progress?: (phase: string) => void;
+  // Called once per request with what it was (method, tool, outcome, client name), for lib/usage.ts.
+  record?: (u: import("./usage").McpUsage) => void;
 };
 export type ToolOutcome = { result: Content; category?: ErrorCategory; usage?: Usage };
 

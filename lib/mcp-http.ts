@@ -16,7 +16,7 @@ export const CORS = {
 
 type Id = string | number | null;
 export type McpResponse = { status: number; body: unknown | null };
-type Rpc = { status: number; body: unknown | null; method: string; tool?: string; category?: ErrorCategory; usage?: Usage };
+type Rpc = { status: number; body: unknown | null; method: string; tool?: string; category?: ErrorCategory; usage?: Usage; client?: string };
 
 const result = (id: Id, value: unknown, method: string, extra: Partial<Rpc> = {}): Rpc => ({ status: 200, body: { jsonrpc: "2.0", id, result: value }, method, ...extra });
 const failure = (id: Id, code: number, message: string, status: number, method: string, category: ErrorCategory, extra: Partial<Rpc> = {}): Rpc => ({
@@ -90,6 +90,7 @@ async function dispatch(raw: string, headers: Headers, ctx: ToolContext): Promis
           instructions: INSTRUCTIONS,
         },
         method,
+        { client: isObject(params.clientInfo) && typeof params.clientInfo.name === "string" ? params.clientInfo.name : undefined },
       );
     }
     case "ping":
@@ -145,6 +146,8 @@ export async function handleMcp(raw: string, headers: Headers, ctx: ToolContext)
     duration_ms: Math.round(performance.now() - started),
     ...(rpc.usage && { usage: rpc.usage }),
   });
+  // Counted only for requests that got past the protocol gates.
+  if (rpc.method !== "-") ctx.record?.({ method: rpc.method, ...(rpc.tool && { tool: rpc.tool }), ok: !isError, ...(rpc.client && { client: rpc.client }) });
   return { status: rpc.status, body: rpc.body };
 }
 

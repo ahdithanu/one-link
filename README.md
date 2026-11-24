@@ -225,6 +225,19 @@ Every MCP request writes one JSON line to stdout, which ends up in Vercel's runt
 
 Brief routes log one `web_request` line per request (route, status, category, duration, tokens; never the input), alongside the MCP `mcp_request` lines and the talent API lines. `npm run report:logs -- logs.jsonl` turns exported logs into availability, per-tool success and p50/p95 latency, generation success, failures, rate-limit rejections, talent API health, Redis fallbacks and model spend. Deploying, rollback, incident steps and alert setup are in [docs/runbook.md](docs/runbook.md).
 
+### Usage analytics
+
+- **Website visitors:** Vercel Web Analytics (`@vercel/analytics`), with page views, referrers, countries and devices. It sets no cookies. The private `/stats` page is excluded.
+- **MCP usage** (`lib/usage.ts`): each request bumps per-day counters in Redis: tool calls by tool, failures, and connections by the client name sent at `initialize`.
+  - Unique callers are counted per day, per 7 and 30 days, and all time, with HyperLogLog over the same HMAC'd caller key the rate limits use. No IP is stored.
+  - One caller is one network address, so it's an estimate of people, not an exact count.
+  - The write runs after the response is sent (`after()`), so it never slows or fails a call. Counters are kept 400 days.
+  - Nothing is recorded without Redis.
+- **`/stats`:** a private page showing all of the above plus the site event totals. It only exists when `STATS_KEY` (16+ characters) is set in Vercel.
+  - Logging in is a form post, so the key never appears in a URL.
+  - The cookie holds an HMAC of the key, not the key itself.
+  - Login is rate limited to 10 tries an hour, and the page is marked noindex.
+
 ### Production monitor
 
 `.github/workflows/monitor.yml` runs the read-only smoke test against production every 15 minutes, with `--live` so it also checks network search and the home page. It retries once after 30 seconds, and a failed run emails the repository owner. Nothing pages a phone yet, and GitHub pauses scheduled workflows in a public repository after 60 days without commits.
