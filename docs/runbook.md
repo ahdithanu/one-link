@@ -86,6 +86,8 @@ The report gives:
 
 - Visitors: Vercel → `one-link` → Analytics. Web Analytics is enabled on the project, and the free plan covers this traffic.
 - Agent usage and unique MCP callers: `https://one-link-eta.vercel.app/stats`. It needs Upstash connected (see below) and a `STATS_KEY` of 16 or more characters, added in Vercel → Settings → Environment Variables → Production, followed by a redeploy. Rotating `STATS_KEY` logs out every open session.
+- Campaign links: add `?utm_source=<bucket>` to every link you post (linkedin, x, instagram, medium, threads, reddit, hn, github, email). Vercel Analytics and the `/stats` funnel then use the same channel names. Unknown values count as `other`.
+- Open `/stats` once in each browser you test from. That marks the browser as internal, so your own use stops counting.
 
 ## Alerts
 

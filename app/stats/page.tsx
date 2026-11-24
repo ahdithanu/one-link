@@ -2,22 +2,15 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { getRedis } from "@/lib/limit";
-import { countEvents, EventName } from "@/lib/store";
+import { MarkInternal } from "@/components/MarkInternal";
+import { briefRate, funnel, STEPS } from "@/lib/funnel";
+import { listEvents } from "@/lib/store";
 import { sessionValid, STATS_COOKIE, statsKey } from "@/lib/stats-auth";
 import { readUsage } from "@/lib/usage";
 
 export const metadata: Metadata = { title: "Stats · One Link", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
-const EVENT_LABELS: { name: EventName; label: string }[] = [
-  { name: "visit", label: "Page visits" },
-  { name: "brief_created", label: "Briefs made from a pasted job" },
-  { name: "prebuilt_opened", label: "Speedrun briefs opened" },
-  { name: "share_copied", label: "Brief links copied" },
-  { name: "link_added", label: "Finished work added" },
-  { name: "network_click", label: "Clicks to the talent network" },
-  { name: "agent_brief", label: "Briefs fetched by AI agents" },
-];
 
 const sum = (rows: Record<string, number>[]) =>
   rows.reduce<Record<string, number>>((acc, r) => {
@@ -48,9 +41,11 @@ export default async function Stats({ searchParams }: { searchParams: Promise<{ 
     );
 
   const redis = getRedis();
-  const [usage, events] = await Promise.all([redis ? readUsage(redis, 30).catch(() => null) : Promise.resolve(null), countEvents()]);
+  const [usage, eventRows] = await Promise.all([redis ? readUsage(redis, 30).catch(() => null) : Promise.resolve(null), listEvents()]);
   const tools = sorted(sum(usage?.days.map((d) => d.tools) ?? []));
   const clients = sorted(sum(usage?.days.map((d) => d.clients) ?? []));
+  const site = eventRows ? funnel(eventRows, 14) : null;
+  const pct = (n: number | null) => (n === null ? "–" : `${n}%`);
   const total = (k: "calls" | "errors" | "connects") => usage?.days.reduce((a, d) => a + d[k], 0) ?? 0;
 
   return (
@@ -135,13 +130,45 @@ export default async function Stats({ searchParams }: { searchParams: Promise<{ 
       )}
 
       <section className="section">
-        <h2>Site events, all time</h2>
-        {events ? (
-          <table className="stats-table">
-            <tbody>{EVENT_LABELS.map(({ name, label }) => <tr key={name}><td>{label}</td><td>{events[name]}</td></tr>)}</tbody>
-          </table>
+        <h2>Site funnel by source</h2>
+        {site ? (
+          <>
+            <div className="stats-scroll">
+              <table className="stats-table">
+                <thead><tr><th>Source</th>{STEPS.map((st) => <th key={st.name}>{st.label}</th>)}<th>Visit → brief</th></tr></thead>
+                <tbody>
+                  {site.sources.map(({ source, counts }) => (
+                    <tr key={source}><td>{source}</td>{STEPS.map((st) => <td key={st.name}>{counts[st.name]}</td>)}<td>{pct(briefRate(counts))}</td></tr>
+                  ))}
+                  <tr className="muted"><td>before tracking</td>{STEPS.map((st) => <td key={st.name}>{site.before[st.name]}</td>)}<td>{pct(briefRate(site.before))}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="note">
+              Source is where a browser session first came from: utm_source if the link had one, otherwise the referring site. Events from
+              before November 24, 2026 have no source or date. &ldquo;Visit → brief&rdquo; counts briefs made plus speedrun briefs opened, per visit.
+            </p>
+          </>
         ) : <p>Couldn&apos;t read events just now.</p>}
       </section>
+
+      {site && (
+        <section className="section">
+          <h2>Site funnel, last 14 days</h2>
+          <div className="stats-scroll">
+            <table className="stats-table">
+              <thead><tr><th>Day</th>{STEPS.map((st) => <th key={st.name}>{st.label}</th>)}</tr></thead>
+              <tbody>
+                {site.daily.map(({ day, counts }) => (
+                  <tr key={day}><td>{day}</td>{STEPS.map((st) => <td key={st.name}>{counts[st.name]}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <MarkInternal />
     </main>
   );
 }

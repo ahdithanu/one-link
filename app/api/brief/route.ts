@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clientIp, limited, PER_IP } from "@/lib/limit";
 import { logWeb, type Usage } from "@/lib/log";
 import { checkInput, makeBrief } from "@/lib/make-brief";
+import { INTERNAL, isSource } from "@/lib/source";
 import { readCapped } from "@/lib/mcp-http";
 
 export const runtime = "nodejs";
@@ -34,7 +35,8 @@ export async function POST(req: NextRequest) {
   if (await limited(clientIp(req.headers)))
     return fail(`You've used your ${PER_IP} new briefs for this hour. Pick a ready-made role from the list, or try again later.`, 429, "rate_limited");
 
-  const result = await makeBrief(body.input);
+  const src = req.headers.get("x-one-link-source");
+  const result = await makeBrief(body.input, undefined, src === INTERNAL ? null : isSource(src) && src !== "agent" ? src : "other");
   if ("error" in result) return fail(result.error, result.status, result.category, result.usage);
   logWeb("/api/brief", started, 200, undefined, result.usage);
   return NextResponse.json({ brief: result.brief, id: result.id });

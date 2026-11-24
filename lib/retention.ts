@@ -6,7 +6,7 @@
 // | briefs/<id>.json         | Keep.                                                      | Shared links people may have sent to a founder.  |
 // | jobbriefs/<job>.json     | Remove 30 days after the role is no longer open.           | Reused by everyone while the role is live.       |
 // | spend/<day>/<uuid>       | Remove days older than 2 days ago.                         | Only today's markers count toward the budget.    |
-// | events/<name>/<uuid>     | Keep (counts on /why). Roll up later; see the runbook.     | Deleting them would change the public counts.    |
+// | events/<name>/[<day>/<source>/]<uuid> | Keep (counts on /why). Roll up later; see the runbook.     | Deleting them would change the public counts.    |
 // | Redis keys               | Expire on their own: limits (1 h), budget (2 days), locks (90 s). | Nothing to clean.                        |
 
 export type StoredBlob = { pathname: string; uploadedAt: Date; size: number };
