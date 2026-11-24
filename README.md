@@ -233,6 +233,8 @@ Brief routes log one `web_request` line per request (route, status, category, du
   - One caller is one network address, so it's an estimate of people, not an exact count.
   - The write runs after the response is sent (`after()`), so it never slows or fails a call. Counters are kept 400 days.
   - Nothing is recorded without Redis.
+- **Site funnel by source** (`lib/source.ts`, `lib/funnel.ts`): on a session's first page view, the visitor's source is reduced to one bucket. `utm_source` wins; otherwise the referring site decides (linkedin, x, instagram, medium, google, direct, other and so on). Every funnel event after that is stored as `events/<name>/<day>/<source>/<uuid>`, so `/stats` shows visits → briefs → copies → finished work per channel and per day. Only the bucket is kept, never the referrer URL. Events from before 2026-11-24 have no source or day and show as "before tracking".
+- **Owner's browser excluded:** logging into `/stats` marks that browser as internal. Its events are dropped, and Vercel Analytics skips it too.
 - **`/stats`:** a private page showing all of the above plus the site event totals. It only exists when `STATS_KEY` (16+ characters) is set in Vercel.
   - Logging in is a form post, so the key never appears in a URL.
   - The cookie holds an HMAC of the key, not the key itself.

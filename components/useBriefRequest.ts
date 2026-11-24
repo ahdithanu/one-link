@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { currentSource } from "@/lib/track";
 
 // Shared by the paste box and the job page: one request at a time, a visible elapsed timer, a
 // client-side timeout, and a message for each way it can fail.
@@ -36,7 +37,7 @@ export function useBriefRequest() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+      const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-one-link-source": currentSource() }, body: JSON.stringify(body), signal: controller.signal });
       const data = await res.json().catch(() => ({}));
       if (res.ok) return { ok: true, data: data as T };
       return { ok: false, failure: { message: data.error ?? "Something went wrong. Try again.", code: data.code ?? String(res.status) } };

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { generateBrief, type GeneratedBrief } from "./brief";
 import { FetchBlocked, fetchJobPost } from "./fetch-post";
 import type { ErrorCategory, Usage } from "./log";
+import type { Source } from "./source";
 import { recordEvent, saveBrief } from "./store";
 
 export type MakeBriefResult =
@@ -13,7 +14,7 @@ export type MakeBriefDeps = {
   fetchPost: (url: string) => Promise<string | null>;
   generate: (post: string, onUsage: (u: Usage) => void) => Promise<GeneratedBrief | null>;
   save: (brief: GeneratedBrief) => Promise<string>;
-  record: () => Promise<void>;
+  record: (source: Source) => Promise<void>;
 };
 
 export const defaultDeps: MakeBriefDeps = {
@@ -21,7 +22,7 @@ export const defaultDeps: MakeBriefDeps = {
   fetchPost: fetchJobPost,
   generate: generateBrief,
   save: saveBrief,
-  record: () => recordEvent("brief_created"),
+  record: (source) => recordEvent("brief_created", source),
 };
 
 export const MIN_POST = 200;
@@ -42,7 +43,9 @@ export function checkInput(raw: unknown): { error: string; status: number; categ
 }
 
 // Shared by the paste box and the MCP server. The caller applies the rate limit.
-export async function makeBrief(raw: unknown, deps: MakeBriefDeps = defaultDeps): Promise<MakeBriefResult> {
+// `source` is the visitor's source bucket for the brief_created count; null records nothing
+// (an internal browser).
+export async function makeBrief(raw: unknown, deps: MakeBriefDeps = defaultDeps, source: Source | null = "other"): Promise<MakeBriefResult> {
   if (!deps.hasKey()) return fail("Live briefs are switched off right now. Pick a role from the list instead.", 503, "model_unavailable");
   const invalid = checkInput(raw);
   if (invalid) return invalid;
@@ -61,7 +64,7 @@ export async function makeBrief(raw: unknown, deps: MakeBriefDeps = defaultDeps)
     const brief = await deps.generate(post, (u) => (usage = u));
     if (!brief) return fail("That doesn't look like a job post. Paste the full description.", 422, "not_a_job_post", usage);
     const id = await deps.save(brief).catch(() => null);
-    await deps.record().catch(() => {});
+    if (source) await deps.record(source).catch(() => {});
     return { brief, id, ...(usage && { usage }) };
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) return fail("It's busy right now. Try again in a minute.", 503, "model_rate_limited", usage);

@@ -208,7 +208,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     }
     const { role, brief } = found;
     const url = `${ctx.origin}/r/${role.short}`;
-    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief", "agent").catch(() => {});
     return done({
       ...text(briefText(brief, `${role.title} at ${role.company}`, url, role)),
       structuredContent: { role: { ...role, warnings: warnings(role) }, brief, url },
@@ -300,7 +300,7 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     const result = await writeJobBrief(net.job, deps);
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = `${ctx.origin}/j/${result.role.id}`;
-    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief", "agent").catch(() => {});
     return done(
       {
         ...text(briefText(result.brief, `${result.role.title} at ${result.role.company}`, url, result.role)),
@@ -317,10 +317,10 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>, c
     if (!parsed.success) return done(argError(parsed.error), "invalid_arguments");
     if (await ctx.limited()) return done(text("Limit of 5 new briefs an hour reached. Try again later, or use get_build_brief for speedrun roles.", true), "rate_limited");
     ctx.progress?.(/^https?:\/\/\S+$/i.test(parsed.data.job_post.trim()) ? "Fetching the job page, then writing the brief" : "Writing the brief, usually 10 to 30 seconds");
-    const result = await makeBrief(parsed.data.job_post);
+    const result = await makeBrief(parsed.data.job_post, undefined, "agent");
     if ("error" in result) return done(text(result.error, true), result.category, result.usage);
     const url = result.id ? `${ctx.origin}/b/${result.id}` : null;
-    if (!(await ctx.eventLimited())) await recordEvent("agent_brief").catch(() => {});
+    if (!(await ctx.eventLimited())) await recordEvent("agent_brief", "agent").catch(() => {});
     const { brief } = result;
     return done({ ...text(briefText(brief, `${brief.title} at ${brief.company}`, url)), structuredContent: { brief, url } }, undefined, result.usage);
   }
